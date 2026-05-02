@@ -2,7 +2,8 @@ Nonterminals expr match branch sttm sttms.
 Terminals
 	integer definition
 	add sub mul 'div' 'rem'
-	match_kw else_kw
+	match_kw else_kw 'true' 'false'
+	'(' ')' '[' ']' '{' '}'
 	branch_arrow branch_bar asgn semicolon.
 
 Rootsymbol sttms.
@@ -14,8 +15,11 @@ Left 200 mul.
 Left 200 'div'.
 Left 200 'rem'.
 
+expr -> '(' expr ')' : '$2'.
 expr -> integer : '$1'.
 expr -> definition : '$1'.
+expr -> 'true' : '$1'.
+expr -> 'false': '$1'.
 
 expr -> expr add expr : {add, '$1', '$3'}.
 expr -> expr sub expr : {sub, '$1', '$3'}.
@@ -30,8 +34,8 @@ expr -> match: '$1'.
 
 sttm -> definition asgn expr : {asgn, '$1', '$3'}.
 
-sttms -> sttm: ['$1'].
-sttms -> sttm semicolon sttm:
-        ['$1', '$3'].
+sttms -> expr: ['$1'].
+sttms -> sttm semicolon: ['$1'].
+sttms -> sttm semicolon sttms: ['$1'] ++ '$3'.
 
 Erlang code.

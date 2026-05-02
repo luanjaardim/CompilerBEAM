@@ -4,7 +4,7 @@ NAME = [a-zA-Z_]
 
 Rules.
 % Whitespace skip
-\s+      : skip_token.
+[\s\n\t]+      : skip_token.
 
 % Operators
 \+   : {token, {add, {TokenLine, TokenCol}}}.
@@ -22,12 +22,12 @@ Rules.
 =>   : {token, {branch_arrow, {TokenLine, TokenCol}}}.
 
 % Separators
-\(    : {token, {op_par, {TokenLine, TokenCol}}}.
-\)    : {token, {cl_par, {TokenLine, TokenCol}}}.
-\[    : {token, {op_sqb, {TokenLine, TokenCol}}}.
-\]    : {token, {cl_sqb, {TokenLine, TokenCol}}}.
-\{    : {token, {op_bra, {TokenLine, TokenCol}}}.
-\}    : {token, {cl_bra, {TokenLine, TokenCol}}}.
+\(    : {token, {'(', {TokenLine, TokenCol}}}.
+\)    : {token, {')', {TokenLine, TokenCol}}}.
+\[    : {token, {'[', {TokenLine, TokenCol}}}.
+\]    : {token, {']', {TokenLine, TokenCol}}}.
+\{    : {token, {'{', {TokenLine, TokenCol}}}.
+\}    : {token, {'}', {TokenLine, TokenCol}}}.
 \:\:  : {token, {double_colon, {TokenLine, TokenCol}}}.
 \:    : {token, {colon, {TokenLine, TokenCol}}}.
 ;     : {token, {semicolon, {TokenLine, TokenCol}}}.
@@ -38,6 +38,8 @@ Rules.
 % Reserved keywords
 match : {token, {match_kw, {TokenLine, TokenCol}}}.
 else  : {token, {else_kw, {TokenLine, TokenCol}}}.
+true  : {token, {'true', {TokenLine, TokenCol}}}.
+false : {token, {'false', {TokenLine, TokenCol}}}.
 
 \-?{DIGIT}+ : {token, {integer, {TokenLine, TokenCol}, list_to_integer(TokenChars)}}.
 {NAME}({NAME}|{DIGIT})*  : {token, {definition, {TokenLine, TokenCol}, TokenChars}}.
