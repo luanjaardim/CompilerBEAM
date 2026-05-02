@@ -19,7 +19,7 @@ Rules.
 <    : {token, {lst, {TokenLine, TokenCol}}}.
 >=   : {token, {gte, {TokenLine, TokenCol}}}.
 <=   : {token, {lse, {TokenLine, TokenCol}}}.
-=>   : {token, {branch_arrow, {TokenLine, TokenCol}}}.
+=>   : {token, {'=>', {TokenLine, TokenCol}}}.
 
 % Separators
 \(    : {token, {'(', {TokenLine, TokenCol}}}.
@@ -28,12 +28,13 @@ Rules.
 \]    : {token, {']', {TokenLine, TokenCol}}}.
 \{    : {token, {'{', {TokenLine, TokenCol}}}.
 \}    : {token, {'}', {TokenLine, TokenCol}}}.
-\:\:  : {token, {double_colon, {TokenLine, TokenCol}}}.
-\:    : {token, {colon, {TokenLine, TokenCol}}}.
-;     : {token, {semicolon, {TokenLine, TokenCol}}}.
-@     : {token, {at, {TokenLine, TokenCol}}}.
-#     : {token, {hash, {TokenLine, TokenCol}}}.
-\|     : {token, {branch_bar, {TokenLine, TokenCol}}}.
+\:\:  : {token, {'::', {TokenLine, TokenCol}}}.
+\:    : {token, {':', {TokenLine, TokenCol}}}.
+;     : {token, {';', {TokenLine, TokenCol}}}.
+,     : {token, {',', {TokenLine, TokenCol}}}.
+@     : {token, {'@', {TokenLine, TokenCol}}}.
+#     : {token, {'#', {TokenLine, TokenCol}}}.
+\|     : {token, {'|', {TokenLine, TokenCol}}}.
 
 % Reserved keywords
 match : {token, {match_kw, {TokenLine, TokenCol}}}.
@@ -42,6 +43,7 @@ true  : {token, {'true', {TokenLine, TokenCol}}}.
 false : {token, {'false', {TokenLine, TokenCol}}}.
 
 \-?{DIGIT}+ : {token, {integer, {TokenLine, TokenCol}, list_to_integer(TokenChars)}}.
-{NAME}({NAME}|{DIGIT})*  : {token, {definition, {TokenLine, TokenCol}, TokenChars}}.
+{NAME}({NAME}|{DIGIT})*   : {token, {definition, {TokenLine, TokenCol}, TokenChars}}.
+{NAME}({NAME}|{DIGIT})*\( : {token, {fn_call, {TokenLine, TokenCol}, lists:droplast(TokenChars)}}.
 
 Erlang code.
