@@ -45,6 +45,7 @@ expr -> match: '$1'.
 
 arguments -> definition ',' arguments: ['$1'] ++ '$3'.
 arguments -> definition ')': ['$1'].
+arguments -> ')': [].
 fn_definition -> '(' arguments block : {'function', {'args', '$2'}, '$3'}.
 expr -> fn_definition: '$1'.
 
