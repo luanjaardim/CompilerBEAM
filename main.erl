@@ -1,24 +1,27 @@
 -module(main).
--export([run/0, run_tk/0, tokenize/1, to_ast/1]).
+-export([tokenize/1, parse/1, tokenize/2, parse/2, convert/1]).
 
-to_ast(FileName) ->
+tokenize(FileName, Output) ->
     {ok, Bin} = file:read_file(FileName),
     {ok, GenLexFile} = leex:file("lexer"),
     {ok, Lexer} = compile:file(GenLexFile, [report_errors]),
-    {ok, Tks, _} = Lexer:string(binary_to_list(Bin)),
+    {ok, Tks, _}=Lexer:string(binary_to_list(Bin)),
+    if Output -> io:format("~p\n", [Tks]); true -> no_output end, Tks.
+
+tokenize(FileName) -> tokenize(FileName, true).
+
+parse(FileName, Output) ->
+    Tks = tokenize(FileName, false),
     {ok, GenParFile} = yecc:file("parser"),
     {ok, Parser} = compile:file(GenParFile, [report_errors]),
-    Parser:parse(Tks).
+    {ok, Ast} = Parser:parse(Tks),
+    if Output -> io:format("~p\n", [Ast]); true -> no_output end, Ast.
 
-tokenize(FileName) ->
-    {ok, Bin} = file:read_file(FileName),
-    {ok, GenLexFile} = leex:file("lexer"),
-    {ok, Lexer} = compile:file(GenLexFile, [report_errors]),
-    Lexer:string(binary_to_list(Bin)).
+parse(FileName) -> parse(FileName, true).
 
-run() ->
-     io:format("~p", [to_ast("test.dulang")]).
-
-run_tk() ->
-    {ok, Tks, _}=tokenize("test.dulang"),
-    io:format("~p", [Tks]).
+% Transforms an Erlang file into its Abstract Format
+convert(FileName) -> 
+    {ok, _} = compile:file(FileName, [to_pp, report_errors]),
+    FileNameWithoutExt = filename:rootname(FileName),
+    {ok, Bin} = file:read_file(FileNameWithoutExt ++ ".P"),
+    io:format("~s\n", [binary_to_list(Bin)]), ok.

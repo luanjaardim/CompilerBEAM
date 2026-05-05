@@ -1,5 +1,5 @@
 Nonterminals 
-	arguments fn_definition call_func func_params
+	arguments fn_definition call_func func_params clauses clauses_aux
 	expr match branch sttm sttms block tests.
 Terminals
 	integer definition
@@ -7,7 +7,7 @@ Terminals
 	fn_call asgn
 	match_kw else_kw 'true' 'false'
 	'(' ')' '[' ']' '{' '}'
-	'=>' '|' ';' ','.
+	'=>' '=|' '|' ';' ','.
 
 Rootsymbol sttms.
 
@@ -48,6 +48,11 @@ arguments -> definition ')': ['$1'].
 arguments -> ')': [].
 fn_definition -> '(' arguments block : {'function', {'args', '$2'}, '$3'}.
 expr -> fn_definition: '$1'.
+
+%clauses_aux -> fn_definition : ['$1'].
+%clauses_aux -> fn_definition '|' clauses_aux : ['$1'] ++ '$3'.
+%clauses -> '=|' clauses_aux: {'clauses', ['$2']}.
+%expr -> clauses: '$1'.
 
 sttm -> definition asgn expr : {asgn, '$1', '$3'}.
 
