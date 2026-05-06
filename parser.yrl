@@ -1,13 +1,13 @@
 Nonterminals 
-	arguments fn_definition call_func func_params clauses clauses_aux
+	arguments fn_definition call_func func_params clauses guards guards_aux
 	expr match branch sttm sttms block tests.
 Terminals
 	integer definition
 	add sub mul 'div' 'rem'
 	fn_call asgn
-	match_kw else_kw 'true' 'false'
+	match_kw else_kw if_kw 'true' 'false'
 	'(' ')' '[' ']' '{' '}'
-	'=>' '=|' '|' ';' ','.
+	'||' '&&' '=>' '=|' '|' ';' ','.
 
 Rootsymbol sttms.
 
@@ -17,6 +17,8 @@ Left 100 sub.
 Left 200 mul.
 Left 200 'div'.
 Left 200 'rem'.
+Left 300 '||'.
+Left 300 '&&'.
 
 expr -> '(' expr ')' : '$2'.
 expr -> integer : '$1'.
@@ -38,22 +40,29 @@ call_func -> fn_call ')' : {'$1', []}.
 expr -> call_func: '$1'.
 
 % TODO: change the expr of a match branch to a match_expr
+% TODO: change this guard to something like a clause
 branch -> '|' else_kw '=>' block: [{'guard', 'else', '$4'}].
 branch -> '|' expr '=>' block branch: [{'guard', '$2', '$4'}] ++ '$5'.
 match -> match_kw expr branch: {'guards', '$2', '$3'}.
 expr -> match: '$1'.
 
+guards_aux -> expr: '$1'.
+guards_aux -> expr '||' guards_aux: {'||', '$1', '$3'}.
+guards_aux -> expr '&&' guards_aux: {'&&', '$1', '$3'}.
+guards -> if_kw guards_aux: '$2'.
 arguments -> definition ',' arguments: ['$1'] ++ '$3'.
 arguments -> definition ')': ['$1'].
 arguments -> ')': [].
-fn_definition -> '(' arguments block : {'function', {'args', '$2'}, '$3'}.
+fn_definition -> '(' arguments guards block : {'function', {'args', '$2'}, {'guards', '$3'}, '$4'}.
+fn_definition -> '(' arguments block : {'function', {'args', '$2'}, {'guards', {}}, '$3'}.
 expr -> fn_definition: '$1'.
 
-%clauses_aux -> fn_definition : ['$1'].
-%clauses_aux -> fn_definition '|' clauses_aux : ['$1'] ++ '$3'.
-%clauses -> '=|' clauses_aux: {'clauses', ['$2']}.
-%expr -> clauses: '$1'.
+clauses -> '=|' fn_definition clauses: {fn_clauses, ['$2' | '$3']}.
+clauses -> '=|' fn_definition: {fn_clauses, ['$2']}.
+clauses -> '|'  fn_definition clauses: ['$2' | '$3'].
+clauses -> '|'  fn_definition: ['$2'].
 
+sttm -> definition clauses : {asgn, '$1', '$2'}.
 sttm -> definition asgn expr : {asgn, '$1', '$3'}.
 
 sttms -> expr: [{'return', '$1'}].

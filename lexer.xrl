@@ -22,6 +22,8 @@ Rules.
 >=   : {token, {gte, TokenLoc}}.
 <=   : {token, {lse, TokenLoc}}.
 =>   : {token, {'=>', TokenLoc}}.
+&&   : {token, {'&&', TokenLoc}}.
+\|\| : {token, {'||', TokenLoc}}.
 
 % Separators
 \(    : {token, {'(', TokenLoc}}.
