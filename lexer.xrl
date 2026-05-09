@@ -25,6 +25,7 @@ Rules.
 =>   : {token, {'=>', TokenLoc}}.
 &&   : {token, {'&&', TokenLoc}}.
 \|\| : {token, {'||', TokenLoc}}.
+_    : {token, {discart, TokenLoc}}.
 
 % Separators
 \(    : {token, {'(', TokenLoc}}.
