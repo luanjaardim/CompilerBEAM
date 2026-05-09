@@ -15,6 +15,7 @@ Rules.
 \%   : {token, {'rem', TokenLoc}}.
 =    : {token, {asgn, TokenLoc}}.
 =\|  : {token, {'=|', TokenLoc}}.
+=\?  : {token, {'=?', TokenLoc}}.
 ==   : {token, {eq, TokenLoc}}.
 \!=  : {token, {neq, TokenLoc}}.
 >    : {token, {grt, TokenLoc}}.
@@ -36,7 +37,6 @@ Rules.
 \:    : {token, {':', TokenLoc}}.
 ;     : {token, {';', TokenLoc}}.
 ,     : {token, {',', TokenLoc}}.
-@     : {token, {'@', TokenLoc}}.
 #     : {token, {'#', TokenLoc}}.
 \|     : {token, {'|', TokenLoc}}.
 
@@ -48,6 +48,7 @@ true  : {token, {'true', TokenLoc}}.
 false : {token, {'false', TokenLoc}}.
 
 \-?{DIGIT}+ : {token, {integer, TokenLoc, list_to_integer(TokenChars)}}.
+@{NAME}({NAME}|{DIGIT})*  : {token, {atom, TokenLoc, tl(TokenChars)}}.
 {NAME}({NAME}|{DIGIT})*   : {token, {definition, TokenLoc, TokenChars}}.
 {NAME}({NAME}|{DIGIT})*\( : {token, {fn_call, TokenLoc, lists:droplast(TokenChars)}}.
 
