@@ -50,7 +50,7 @@ false : {token, {'false', TokenLoc}}.
 
 \-?{DIGIT}+ : {token, {integer, TokenLoc, list_to_integer(TokenChars)}}.
 @{NAME}({NAME}|{DIGIT})*  : {token, {atom, TokenLoc, tl(TokenChars)}}.
-{NAME}({NAME}|{DIGIT})*   : {token, {definition, TokenLoc, TokenChars}}.
+{NAME}({NAME}|{DIGIT})*   : {token, {var, TokenLoc, TokenChars}}.
 {NAME}({NAME}|{DIGIT})*\( : {token, {fn_call, TokenLoc, lists:droplast(TokenChars)}}.
 
 Erlang code.

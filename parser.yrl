@@ -2,7 +2,7 @@ Nonterminals
 	arguments fn_definition call_func func_params recv clauses clause_aux guards guards_aux
 	tuple tuple_aux expr match branch sttm sttms block.
 Terminals
-	integer definition atom discart
+	integer var atom discart
 	add sub mul 'div' 'rem'
 	fn_call asgn
 	match_kw else_kw if_kw 'true' 'false'
@@ -22,7 +22,7 @@ Left 300 '&&'.
 
 expr -> '(' expr ')' : '$2'.
 expr -> integer : '$1'.
-expr -> definition : '$1'.
+expr -> var : '$1'.
 expr -> discart : '$1'.
 expr -> atom : '$1'.
 expr -> 'true' : '$1'.
@@ -39,7 +39,7 @@ expr -> expr 'rem' expr : {'rem', '$1', '$3'}.
 tuple_aux -> '}' : [].
 tuple_aux -> expr '}': ['$1'].
 tuple_aux -> expr ',' tuple_aux: ['$1' | '$3'].
-tuple -> '{' tuple_aux: {tuple, '$2'}.
+tuple -> '{' tuple_aux: {tuple, '$1', '$2'}.
 
 % Function call
 func_params -> expr ')' : ['$1'].
@@ -50,10 +50,10 @@ expr -> call_func: '$1'.
 
 % TODO: change the expr of a match branch to a match_expr
 % TODO: change this guard to something like a clause
-branch -> '|' else_kw '=>' block: [{'clause', 'else', '$4'}].
-branch -> '|' expr '=>' block branch: [{'clause', {'args', '$2'}, {'guards', []}, '$4'} | '$5'].
-branch -> '|' expr guards '=>' block branch: [{'clause', {'args', '$2'}, {'guards', '$3'}, '$5'} | '$6'].
-match -> match_kw expr branch: {'match', '$2', '$3'}.
+branch -> '|' else_kw '=>' block: [{'clause', '$1', '$2', '$4'}].
+branch -> '|' expr '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', []}, '$4'} | '$5'].
+branch -> '|' expr guards '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', '$3'}, '$5'} | '$6'].
+match -> match_kw expr branch: {'case', '$1', '$2', '$3'}.
 expr -> match: '$1'.
 
 guards_aux -> expr: '$1'.
@@ -63,8 +63,8 @@ guards -> if_kw guards_aux: '$2'.
 arguments -> expr ',' arguments: ['$1'] ++ '$3'.
 arguments -> expr ')': ['$1'].
 arguments -> ')': [].
-fn_definition -> '(' arguments guards block : {'clause', {'args', '$2'}, {'guards', '$3'}, '$4'}.
-fn_definition -> '(' arguments block : {'clause', {'args', '$2'}, {'guards', []}, '$3'}.
+fn_definition -> '(' arguments guards block : {'clause', '$1', {'args', '$2'}, {'guards', '$3'}, '$4'}.
+fn_definition -> '(' arguments block : {'clause', '$1', {'args', '$2'}, {'guards', []}, '$3'}.
 
 recv -> '=?' fn_definition clause_aux: ['$2' | '$3'].
 recv -> '=?' fn_definition: ['$2'].
@@ -73,12 +73,12 @@ clauses -> '=|' fn_definition: ['$2'].
 clause_aux -> '|'  fn_definition clause_aux: ['$2' | '$3'].
 clause_aux -> '|'  fn_definition: ['$2'].
 
-sttm -> definition recv : {recv, '$1', '$2'}.
-sttm -> definition clauses : {function, '$1', '$2'}.
-sttm -> definition asgn fn_definition : {function, '$1', ['$3']}.
-sttm -> definition asgn expr : {asgn, '$1', '$3'}.
+sttm -> var recv : {recv, '$1', '$2'}.
+sttm -> var clauses : {function, '$1', '$2'}.
+sttm -> var asgn fn_definition : {function, '$1', ['$3']}.
+sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
 
-sttms -> expr: [{'return', '$1'}].
+sttms -> expr: ['$1'].
 sttms -> sttm ';' : ['$1'].
 sttms -> sttm ';' sttms: ['$1'] ++ '$3'.
 
