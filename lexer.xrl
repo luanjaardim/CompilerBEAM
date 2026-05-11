@@ -25,7 +25,6 @@ Rules.
 =>   : {token, {'=>', TokenLoc}}.
 &&   : {token, {'&&', TokenLoc}}.
 \|\| : {token, {'||', TokenLoc}}.
-_    : {token, {discart, TokenLoc}}.
 
 % Separators
 \(    : {token, {'(', TokenLoc}}.
@@ -42,9 +41,9 @@ _    : {token, {discart, TokenLoc}}.
 \|     : {token, {'|', TokenLoc}}.
 
 % Reserved keywords
-if    : {token, {if_kw, TokenLoc}}. % TODO: implement guard conditions
+if    : {token, {if_kw, TokenLoc}}.
+pub   : {token, {pub_kw, TokenLoc}}.
 match : {token, {match_kw, TokenLoc}}.
-else  : {token, {else_kw, TokenLoc}}.
 true  : {token, {'true', TokenLoc}}.
 false : {token, {'false', TokenLoc}}.
 

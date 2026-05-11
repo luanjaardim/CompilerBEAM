@@ -2,10 +2,10 @@ Nonterminals
 	arguments fn_definition call_func func_params recv clauses clause_aux guards guards_aux
 	tuple tuple_aux expr match branch sttm sttms block.
 Terminals
-	integer var atom discart
+	integer var atom
 	add sub mul 'div' 'rem'
 	fn_call asgn
-	match_kw else_kw if_kw 'true' 'false'
+	match_kw if_kw 'true' 'false' pub_kw
 	'(' ')' '[' ']' '{' '}'
 	'||' '&&' '=>' '=|' '=?' '|' ';' ','.
 
@@ -23,7 +23,6 @@ Left 300 '&&'.
 expr -> '(' expr ')' : '$2'.
 expr -> integer : '$1'.
 expr -> var : '$1'.
-expr -> discart : '$1'.
 expr -> atom : '$1'.
 expr -> 'true' : '$1'.
 expr -> 'false': '$1'.
@@ -50,7 +49,7 @@ expr -> call_func: '$1'.
 
 % TODO: change the expr of a match branch to a match_expr
 % TODO: change this guard to something like a clause
-branch -> '|' else_kw '=>' block: [{'clause', '$1', '$2', '$4'}].
+branch -> '|' expr '=>' block : [{'clause', '$1', {'args', ['$2']}, {'guards', []}, '$4'}].
 branch -> '|' expr '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', []}, '$4'} | '$5'].
 branch -> '|' expr guards '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', '$3'}, '$5'} | '$6'].
 match -> match_kw expr branch: {'case', '$1', '$2', '$3'}.
@@ -77,6 +76,7 @@ sttm -> var recv : {recv, '$1', '$2'}.
 sttm -> var clauses : {function, '$1', '$2'}.
 sttm -> var asgn fn_definition : {function, '$1', ['$3']}.
 sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
+sttm -> pub_kw sttm: {pub, '$2'}.
 
 sttms -> expr: ['$1'].
 sttms -> sttm ';' : ['$1'].
