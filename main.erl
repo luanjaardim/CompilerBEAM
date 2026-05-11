@@ -63,6 +63,12 @@ visit_aux({pub, Def}, 0) ->
 visit_aux({function, {var, Loc, Name}, Clauses}, 0) ->
     [{clause, _, {args, ArgsList}, _, _} | _] = Clauses,
     {function, Loc, list_to_atom(Name), length(ArgsList), visit_list_aux(Clauses, 1) };
+% Defining lambda functions(Level > 0)
+visit_aux({function, {var, Loc, Name}, Clauses}, Level) when Level > 0 ->
+    {match,
+        Loc, {var, Loc, list_to_atom(Name)},
+        {named_fun, Loc, list_to_atom(Name), visit_list_aux(Clauses, Level+1) }
+    };
 
 visit_aux({clause, {_, Loc}, {args, ArgsList}, {guards, GuardsList}, Body}, Level) ->
     {clause, Loc,
