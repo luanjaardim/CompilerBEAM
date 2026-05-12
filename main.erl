@@ -27,35 +27,39 @@ convert(FileName) ->
     io:format("~s\n", [binary_to_list(Bin)]), ok.
 
 visit(FileName, Output) ->
-    ModuleName = list_to_atom(filename:rootname(FileName)),
     Ast=parse(FileName, false),
-    AbsFormat=visit_list_aux(Ast, 0),
-    self() ! done, % Last message on mailbox
-    ModDef = {attribute, {1, 1}, module, ModuleName},
-    Loop = fun Loop(ExpFunctions) ->
-        receive
-            % Receive messages from the visit process
-            {export_fn, FnName, Arity} -> Loop([{FnName, Arity} | ExpFunctions]);
-            done -> {attribute, {1, 1}, export, ExpFunctions}
-        end
-    end,
-    AbsFormatMod = [ModDef | [Loop([]) | AbsFormat]],
-    if Output -> io:format("~p\n", [AbsFormatMod]); true -> no_output end,
-    AbsFormatMod.
+    AbsFormat = lists:map(fun(Mod) -> visit_aux(Mod, 0) end, Ast),
+    if Output -> io:format("~p\n", [AbsFormat]); true -> no_output end,
+    AbsFormat.
 
 visit(FileName) -> visit(FileName, true).
 
 compile(FileName) ->
-    AbsFormat = visit(FileName),
-    {ok, _, Bin} = compile:forms(AbsFormat, [binary]),
-    file:write_file(filename:rootname(FileName) ++ ".beam", Bin).
+    AbsFormat = visit(FileName, false),
+    lists:foreach(fun(ModAbsFormat = [{attribute, _, module, ModuleName} | _]) ->
+        {ok, _, Bin} = compile:forms(ModAbsFormat, [binary]),
+        io:format("Saving Module ~p\n", [atom_to_list(ModuleName)]),
+        file:write_file(atom_to_list(ModuleName) ++ ".beam", Bin)
+    end, lists:droplast(AbsFormat)).
+
+visit_aux({module, _, {var, Loc, ModuleName}, Clauses}, 0) ->
+    ModuleDefinitions = visit_list_aux(Clauses, 0),
+    self() ! done, % Last message on mailbox
+    Loop = fun Loop(ExpFunctions) ->
+        receive
+            % Receive messages from the visit process
+            {export_fn, FnName, Arity} -> Loop([{FnName, Arity} | ExpFunctions]);
+            done -> ExpFunctions
+        end
+    end,
+    [{attribute, Loc, module, ModuleName}, {attribute, Loc, export, Loop([])} | ModuleDefinitions];
 
 visit_aux({pub, Def}, 0) ->
     DefAst = visit_aux(Def, 0),
     case DefAst of
         % This will send the function name and its arity as message to be post processed
         {function, _, FnName, Arity, _} -> self() ! {export_fn, FnName, Arity};
-        true -> err
+        _ -> err
     end,
     DefAst;
 

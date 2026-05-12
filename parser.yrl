@@ -1,12 +1,12 @@
 Nonterminals 
 	arguments fn_definition call_func func_params recv clauses clause_aux guards guards_or guards_and
-	tuple tuple_aux expr match branch sttm sttms block fn_decl def definitions.
+	tuple tuple_aux expr match branch sttm sttms block mod_decl mod_decl_aux fn_decl def definitions.
 Terminals
 	integer string var atom
 	'+' '-' '*' '/' 'div' 'rem'
 	'==' '/=' '>' '<' '>=' '=<'
 	fn_call asgn
-	match_kw if_kw 'true' 'false' pub_kw
+	match_kw if_kw 'true' 'false' pub_kw mod_kw
 	'(' ')' '[' ']' '{' '}'
 	'||' '&&' '=>' '=|' '?' '!' '|' ';' ',' eof.
 
@@ -106,8 +106,13 @@ sttm -> fn_decl : '$1'.
 sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
 fn_decl -> var clauses : {function, '$1', '$2'}.
 fn_decl -> var asgn fn_definition : {function, '$1', ['$3']}.
-def -> pub_kw fn_decl: {pub, '$2'}.
+mod_decl_aux -> def '}' : ['$1'].
+mod_decl_aux -> def mod_decl_aux : ['$1' | '$2'].
+mod_decl -> mod_kw var '{' mod_decl_aux : {module, '$1', '$2', '$4'}.
+
+def -> mod_decl: '$1'.
 def -> fn_decl: '$1'.
+def -> pub_kw fn_decl: {pub, '$2'}.
 
 sttms -> expr: ['$1'].
 sttms -> sttm ';' : ['$1'].
