@@ -1,15 +1,15 @@
 Nonterminals 
 	arguments fn_definition call_func func_params recv clauses clause_aux guards guards_aux
-	tuple tuple_aux expr match branch sttm sttms block.
+	tuple tuple_aux expr match branch sttm sttms block fn_decl def definitions.
 Terminals
 	integer var atom
 	add sub mul 'div' 'rem'
 	fn_call asgn
 	match_kw if_kw 'true' 'false' pub_kw
 	'(' ')' '[' ']' '{' '}'
-	'||' '&&' '=>' '=|' '=?' '|' ';' ','.
+	'||' '&&' '=>' '=|' '=?' '|' ';' ',' eof.
 
-Rootsymbol sttms.
+Rootsymbol definitions.
 
 %% Precedence
 Left 100 add.
@@ -72,16 +72,21 @@ clauses -> '=|' fn_definition: ['$2'].
 clause_aux -> '|'  fn_definition clause_aux: ['$2' | '$3'].
 clause_aux -> '|'  fn_definition: ['$2'].
 
+sttm -> fn_decl : '$1'.
 sttm -> var recv : {recv, '$1', '$2'}.
-sttm -> var clauses : {function, '$1', '$2'}.
-sttm -> var asgn fn_definition : {function, '$1', ['$3']}.
 sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
-sttm -> pub_kw sttm: {pub, '$2'}.
+fn_decl -> var clauses : {function, '$1', '$2'}.
+fn_decl -> var asgn fn_definition : {function, '$1', ['$3']}.
+def -> pub_kw fn_decl: {pub, '$2'}.
+def -> fn_decl: '$1'.
 
 sttms -> expr: ['$1'].
 sttms -> sttm ';' : ['$1'].
 sttms -> sttm ';' sttms: ['$1'] ++ '$3'.
 
 block -> '{' sttms '}': '$2'.
+
+definitions -> def definitions : ['$1' | '$2'].
+definitions -> eof : ['$1'].
 
 Erlang code.

@@ -5,7 +5,7 @@ tokenize(FileName, Output) ->
     {ok, Bin} = file:read_file(FileName),
     {ok, GenLexFile} = leex:file("lexer"),
     {ok, Lexer} = compile:file(GenLexFile, [report_errors]),
-    {ok, Tks, _}=Lexer:string(binary_to_list(Bin)),
+    {ok, Tks, _}=Lexer:string(binary_to_list(Bin) ++ "\n__EOF__"),
     if Output -> io:format("~p\n", [Tks]); true -> no_output end, Tks.
 
 tokenize(FileName) -> tokenize(FileName, true).
@@ -89,6 +89,7 @@ visit_aux({tuple, {_, Loc}, Elems}, Level) -> {tuple, Loc, visit_list_aux(Elems,
 visit_aux(Atom = {atom, Loc, Text}, _) -> {atom, Loc, list_to_atom(Text)};
 visit_aux(Var = {var, Loc, Text}, _) -> {var, Loc, list_to_atom(Text)};
 visit_aux(Int = {integer, _, _}, _) -> Int;
+visit_aux(EOF = {eof, _}, 0) -> EOF;
 
 visit_aux(Term, Level) -> io:format("term not found: ~p\n", [Term]), err.
 

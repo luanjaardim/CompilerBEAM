@@ -41,11 +41,12 @@ Rules.
 \|     : {token, {'|', TokenLoc}}.
 
 % Reserved keywords
-if    : {token, {if_kw, TokenLoc}}.
-pub   : {token, {pub_kw, TokenLoc}}.
-match : {token, {match_kw, TokenLoc}}.
-true  : {token, {'true', TokenLoc}}.
-false : {token, {'false', TokenLoc}}.
+if      : {token, {if_kw, TokenLoc}}.
+pub     : {token, {pub_kw, TokenLoc}}.
+match   : {token, {match_kw, TokenLoc}}.
+true    : {token, {'true', TokenLoc}}.
+false   : {token, {'false', TokenLoc}}.
+__EOF__ : {token, {eof, TokenLoc}}.
 
 \-?{DIGIT}+ : {token, {integer, TokenLoc, list_to_integer(TokenChars)}}.
 @{NAME}({NAME}|{DIGIT})*  : {token, {atom, TokenLoc, tl(TokenChars)}}.
