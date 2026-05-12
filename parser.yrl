@@ -8,7 +8,7 @@ Terminals
 	fn_call asgn
 	match_kw if_kw 'true' 'false' pub_kw
 	'(' ')' '[' ']' '{' '}'
-	'||' '&&' '=>' '=|' '=?' '|' ';' ',' eof.
+	'||' '&&' '=>' '=|' '?' '!' '|' ';' ',' eof.
 
 Rootsymbol definitions.
 
@@ -27,6 +27,8 @@ Left 50 '<'.
 Left 50 '>='.
 Left 50 '=<'.
 Left 50 '=>'.
+
+Left 20 '!'.
 
 Left 10 '||'.
 Left 10 '&&'.
@@ -55,6 +57,9 @@ expr -> expr '>'  expr: {op, '$2', '$1', '$3'}.
 expr -> expr '<'  expr: {op, '$2', '$1', '$3'}.
 expr -> expr '>=' expr: {op, '$2', '$1', '$3'}.
 expr -> expr '=<' expr: {op, '$2', '$1', '$3'}.
+
+% Send messages
+expr -> expr '!' expr: {op, '$2', '$1', '$3'}.
 
 % Tuple definition
 tuple_aux -> '}' : [].
@@ -88,15 +93,16 @@ arguments -> ')': [].
 fn_definition -> '(' arguments guards block : {'clause', '$1', {'args', '$2'}, {'guards', '$3'}, '$4'}.
 fn_definition -> '(' arguments block : {'clause', '$1', {'args', '$2'}, {'guards', []}, '$3'}.
 
-recv -> '=?' fn_definition clause_aux: ['$2' | '$3'].
-recv -> '=?' fn_definition: ['$2'].
+% Receive messages
+expr -> '?' fn_definition: {recv, '$1', ['$2']}.
+expr -> '?' fn_definition clause_aux: {recv, '$1', ['$2' | '$3']}.
+
 clauses -> '=|' fn_definition clause_aux: ['$2' | '$3'].
 clauses -> '=|' fn_definition: ['$2'].
 clause_aux -> '|'  fn_definition clause_aux: ['$2' | '$3'].
 clause_aux -> '|'  fn_definition: ['$2'].
 
 sttm -> fn_decl : '$1'.
-sttm -> var recv : {recv, '$1', '$2'}.
 sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
 fn_decl -> var clauses : {function, '$1', '$2'}.
 fn_decl -> var asgn fn_definition : {function, '$1', ['$3']}.

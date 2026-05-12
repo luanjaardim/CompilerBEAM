@@ -76,6 +76,8 @@ visit_aux({clause, {_, Loc}, {args, ArgsList}, {guards, GuardsList}, Body}, Leve
         lists:map(fun(L) -> visit_list_aux(L, Level) end, GuardsList),
         visit_list_aux(Body, Level+1)} ;
 
+visit_aux({recv, {_, Loc}, Clauses}, Level) -> {'receive', Loc, visit_list_aux(Clauses, Level)};
+
 visit_aux({'case', {_, Loc}, Expr, Clauses}, Level) ->
     {'case', Loc, visit_aux(Expr, Level), visit_list_aux(Clauses, Level+1)};
 
