@@ -82,6 +82,9 @@ visit_aux({'case', {_, Loc}, Expr, Clauses}, Level) ->
 visit_aux({match, {_, Loc}, Lhs, Rhs}, Level) ->
     {match, Loc, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 
+visit_aux({{fn_call, Loc, Caller}, Parameters}, Level) ->
+    {call, Loc, Caller, visit_list_aux(Parameters, Level+1)};
+
 visit_aux({tuple, {_, Loc}, Elems}, Level) -> {tuple, Loc, visit_list_aux(Elems, Level)};
 visit_aux(Atom = {atom, Loc, Text}, _) -> {atom, Loc, list_to_atom(Text)};
 visit_aux(Var = {var, Loc, Text}, _) -> {var, Loc, list_to_atom(Text)};
