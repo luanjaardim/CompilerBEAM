@@ -1,6 +1,7 @@
 Definitions.
 DIGIT = [0-9]
 NAME = [a-zA-Z_]
+WORD = {NAME}({NAME}|{DIGIT})*
 
 Rules.
 % Whitespace skip
@@ -8,20 +9,21 @@ Rules.
 \$.*\n           : skip_token.
 
 % Operators
-\+   : {token, {add, TokenLoc}}.
-\-   : {token, {sub, TokenLoc}}.
-\*   : {token, {mul, TokenLoc}}.
-\/   : {token, {'div', TokenLoc}}.
+\+   : {token, {'+', TokenLoc}}.
+\-   : {token, {'-', TokenLoc}}.
+\*   : {token, {'*', TokenLoc}}.
+\/   : {token, {'/', TokenLoc}}.
+\/\/ : {token, {'div', TokenLoc}}.
 \%   : {token, {'rem', TokenLoc}}.
 =    : {token, {asgn, TokenLoc}}.
 =\|  : {token, {'=|', TokenLoc}}.
 =\?  : {token, {'=?', TokenLoc}}.
-==   : {token, {eq, TokenLoc}}.
-\!=  : {token, {neq, TokenLoc}}.
->    : {token, {grt, TokenLoc}}.
-<    : {token, {lst, TokenLoc}}.
->=   : {token, {gte, TokenLoc}}.
-<=   : {token, {lse, TokenLoc}}.
+==   : {token, {'==', TokenLoc}}.
+\!=  : {token, {'/=', TokenLoc}}.
+>    : {token, {'>', TokenLoc}}.
+<    : {token, {'<', TokenLoc}}.
+>=   : {token, {'>=', TokenLoc}}.
+<=   : {token, {'=<', TokenLoc}}.
 =>   : {token, {'=>', TokenLoc}}.
 &&   : {token, {'&&', TokenLoc}}.
 \|\| : {token, {'||', TokenLoc}}.
@@ -48,9 +50,10 @@ true    : {token, {'true', TokenLoc}}.
 false   : {token, {'false', TokenLoc}}.
 __EOF__ : {token, {eof, TokenLoc}}.
 
+\"[^\"]*\"  : {token, {string, TokenLoc, lists:droplast(tl(TokenChars))}}.
 \-?{DIGIT}+ : {token, {integer, TokenLoc, list_to_integer(TokenChars)}}.
-@{NAME}({NAME}|{DIGIT})*  : {token, {atom, TokenLoc, tl(TokenChars)}}.
-{NAME}({NAME}|{DIGIT})*   : {token, {var, TokenLoc, TokenChars}}.
-{NAME}({NAME}|{DIGIT})*\( : {token, {fn_call, TokenLoc, {var, TokenLoc, list_to_atom(lists:droplast(TokenChars))}}}.
+@{WORD}  : {token, {atom, TokenLoc, list_to_atom(tl(TokenChars))}}.
+{WORD}   : {token, {var, TokenLoc, list_to_atom(TokenChars)}}.
+({WORD}|{WORD}\:{WORD})\( : {token, {fn_call, TokenLoc, lists:map(fun(S) -> list_to_atom(S) end, string:tokens(lists:droplast(TokenChars), ":"))}}.
 
 Erlang code.

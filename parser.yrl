@@ -1,9 +1,10 @@
 Nonterminals 
-	arguments fn_definition call_func func_params recv clauses clause_aux guards guards_aux
+	arguments fn_definition call_func func_params recv clauses clause_aux guards guards_or guards_and
 	tuple tuple_aux expr match branch sttm sttms block fn_decl def definitions.
 Terminals
-	integer var atom
-	add sub mul 'div' 'rem'
+	integer string var atom
+	'+' '-' '*' '/' 'div' 'rem'
+	'==' '/=' '>' '<' '>=' '=<'
 	fn_call asgn
 	match_kw if_kw 'true' 'false' pub_kw
 	'(' ')' '[' ']' '{' '}'
@@ -12,27 +13,48 @@ Terminals
 Rootsymbol definitions.
 
 %% Precedence
-Left 100 add.
-Left 100 sub.
-Left 200 mul.
+Left 100 '+'.
+Left 100 '-'.
+Left 200 '*'.
+Left 200 '/'.
 Left 200 'div'.
 Left 200 'rem'.
-Left 300 '||'.
-Left 300 '&&'.
+
+Left 50 '=='.
+Left 50 '/='.
+Left 50 '>'.
+Left 50 '<'.
+Left 50 '>='.
+Left 50 '=<'.
+Left 50 '=>'.
+
+Left 10 '||'.
+Left 10 '&&'.
 
 expr -> '(' expr ')' : '$2'.
 expr -> integer : '$1'.
+expr -> string : '$1'.
 expr -> var : '$1'.
 expr -> atom : '$1'.
 expr -> 'true' : '$1'.
 expr -> 'false': '$1'.
 expr -> tuple: '$1'.
 
-expr -> expr add expr : {add, '$1', '$3'}.
-expr -> expr sub expr : {sub, '$1', '$3'}.
-expr -> expr mul expr : {mul, '$1', '$3'}.
-expr -> expr 'div' expr : {'div', '$1', '$3'}.
-expr -> expr 'rem' expr : {'rem', '$1', '$3'}.
+% Arithmetical operations
+expr -> expr '+' expr : {op, '$2', '$1', '$3'}.
+expr -> expr '-' expr : {op, '$2', '$1', '$3'}.
+expr -> expr '*' expr : {op, '$2', '$1', '$3'}.
+expr -> expr '/' expr : {op, '$2', '$1', '$3'}.
+expr -> expr 'div' expr : {op, '$2', '$1', '$3'}.
+expr -> expr 'rem' expr : {op, '$2', '$1', '$3'}.
+
+% Bollean operations
+expr -> expr '==' expr: {op, '$2', '$1', '$3'}.
+expr -> expr '/=' expr: {op, '$2', '$1', '$3'}.
+expr -> expr '>'  expr: {op, '$2', '$1', '$3'}.
+expr -> expr '<'  expr: {op, '$2', '$1', '$3'}.
+expr -> expr '>=' expr: {op, '$2', '$1', '$3'}.
+expr -> expr '=<' expr: {op, '$2', '$1', '$3'}.
 
 % Tuple definition
 tuple_aux -> '}' : [].
@@ -55,10 +77,11 @@ branch -> '|' expr guards '=>' block branch: [{'clause', '$1', {'args', ['$2']},
 match -> match_kw expr branch: {'case', '$1', '$2', '$3'}.
 expr -> match: '$1'.
 
-guards_aux -> expr: '$1'.
-guards_aux -> expr '||' guards_aux: {'||', '$1', '$3'}.
-guards_aux -> expr '&&' guards_aux: {'&&', '$1', '$3'}.
-guards -> if_kw guards_aux: '$2'.
+guards_and -> expr: ['$1'].
+guards_and -> expr '&&' guards_and: ['$1' | '$3'].
+guards_or -> guards_and '||' guards_or: ['$1'] ++ '$3'.
+guards_or -> guards_and : ['$1'].
+guards -> if_kw guards_or: '$2'.
 arguments -> expr ',' arguments: ['$1'] ++ '$3'.
 arguments -> expr ')': ['$1'].
 arguments -> ')': [].

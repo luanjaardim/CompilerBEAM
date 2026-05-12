@@ -62,18 +62,18 @@ visit_aux({pub, Def}, 0) ->
 % Visitor functions
 visit_aux({function, {var, Loc, Name}, Clauses}, 0) ->
     [{clause, _, {args, ArgsList}, _, _} | _] = Clauses,
-    {function, Loc, list_to_atom(Name), length(ArgsList), visit_list_aux(Clauses, 1) };
+    {function, Loc, Name, length(ArgsList), visit_list_aux(Clauses, 1) };
 % Defining lambda functions(Level > 0)
 visit_aux({function, {var, Loc, Name}, Clauses}, Level) when Level > 0 ->
     {match,
-        Loc, {var, Loc, list_to_atom(Name)},
-        {named_fun, Loc, list_to_atom(Name), visit_list_aux(Clauses, Level+1) }
+        Loc, {var, Loc, Name},
+        {named_fun, Loc, Name, visit_list_aux(Clauses, Level+1) }
     };
 
 visit_aux({clause, {_, Loc}, {args, ArgsList}, {guards, GuardsList}, Body}, Level) ->
     {clause, Loc,
         visit_list_aux(ArgsList, Level),
-        visit_list_aux(GuardsList, Level),
+        lists:map(fun(L) -> visit_list_aux(L, Level) end, GuardsList),
         visit_list_aux(Body, Level+1)} ;
 
 visit_aux({'case', {_, Loc}, Expr, Clauses}, Level) ->
@@ -82,13 +82,19 @@ visit_aux({'case', {_, Loc}, Expr, Clauses}, Level) ->
 visit_aux({match, {_, Loc}, Lhs, Rhs}, Level) ->
     {match, Loc, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 
-visit_aux({{fn_call, Loc, Caller}, Parameters}, Level) ->
-    {call, Loc, Caller, visit_list_aux(Parameters, Level+1)};
+visit_aux({{fn_call, Loc, [Name]}, Parameters}, Level) ->
+    {call, Loc, {atom, Loc, Name}, visit_list_aux(Parameters, Level+1)};
+visit_aux({{fn_call, Loc, [ModName, FnName]}, Parameters}, Level) ->
+    {call, Loc, {remote, Loc, {atom, Loc, ModName}, {atom, Loc, FnName}}, visit_list_aux(Parameters, Level+1)};
+
+visit_aux({op, {Operation, Loc}, Lhs, Rhs}, Level) ->
+    {op, Loc, Operation, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 
 visit_aux({tuple, {_, Loc}, Elems}, Level) -> {tuple, Loc, visit_list_aux(Elems, Level)};
-visit_aux(Atom = {atom, Loc, Text}, _) -> {atom, Loc, list_to_atom(Text)};
-visit_aux(Var = {var, Loc, Text}, _) -> {var, Loc, list_to_atom(Text)};
+visit_aux(Atom = {atom, Loc, Text}, _) -> {atom, Loc, Text};
+visit_aux(Var = {var, Loc, Text}, _) -> {var, Loc, Text};
 visit_aux(Int = {integer, _, _}, _) -> Int;
+visit_aux(Str = {string, _, _}, _) -> Str;
 visit_aux(EOF = {eof, _}, 0) -> EOF;
 
 visit_aux(Term, Level) -> io:format("term not found: ~p\n", [Term]), err.
