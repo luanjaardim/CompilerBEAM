@@ -1,10 +1,11 @@
-Nonterminals 
-	arguments fn_definition call_func func_params recv clauses clause_aux guards guards_or guards_and
-	tuple tuple_aux expr match branch sttm sttms block mod_decl mod_decl_aux fn_decl def definitions.
+Nonterminals
+	arguments fn_definition func_params clauses clause_aux guards guards_or guards_and
+	expr match branch sttm sttms block mod_decl mod_decl_aux fn_decl def definitions
+	tuple tuple_aux list list_aux call_func.
 Terminals
 	integer string var atom
 	'+' '-' '*' '/' 'div' 'rem'
-	'==' '/=' '>' '<' '>=' '=<'
+	'==' '/=' '>' '<' '>=' '=<' '::'
 	fn_call asgn
 	match_kw if_kw 'true' 'false' pub_kw mod_kw
 	'(' ')' '[' ']' '{' '}'
@@ -32,6 +33,7 @@ Left 20 '!'.
 
 Left 10 '||'.
 Left 10 '&&'.
+Left 10 '::'.
 
 expr -> '(' expr ')' : '$2'.
 expr -> integer : '$1'.
@@ -41,6 +43,7 @@ expr -> atom : '$1'.
 expr -> 'true' : '$1'.
 expr -> 'false': '$1'.
 expr -> tuple: '$1'.
+expr -> list: '$1'.
 
 % Arithmetical operations
 expr -> expr '+' expr : {op, '$2', '$1', '$3'}.
@@ -60,12 +63,20 @@ expr -> expr '=<' expr: {op, '$2', '$1', '$3'}.
 
 % Send messages
 expr -> expr '!' expr: {op, '$2', '$1', '$3'}.
+% List append
+expr -> expr '::' expr: {cons, '$2', '$1', '$3'}.
 
 % Tuple definition
 tuple_aux -> '}' : [].
 tuple_aux -> expr '}': ['$1'].
 tuple_aux -> expr ',' tuple_aux: ['$1' | '$3'].
 tuple -> '{' tuple_aux: {tuple, '$1', '$2'}.
+
+% List definition
+list_aux -> ']' : {nil, '$1'}.
+list_aux -> expr ']': {cons, '$2', '$1', {nil, '$2'}}.
+list_aux -> expr ',' list_aux: {cons, '$2', '$1', '$3'}.
+list -> '[' list_aux : '$2'.
 
 % Function call
 func_params -> expr ')' : ['$1'].

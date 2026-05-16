@@ -96,6 +96,8 @@ visit_aux({{fn_call, Loc, [ModName, FnName]}, Parameters}, Level) ->
 visit_aux({op, {Operation, Loc}, Lhs, Rhs}, Level) ->
     {op, Loc, Operation, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 
+visit_aux({cons, {_, Loc}, Lhs, Rhs}, Level) -> {cons, Loc, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
+visit_aux({nil, {_, Loc}}, _) -> {nil, Loc};
 visit_aux({tuple, {_, Loc}, Elems}, Level) -> {tuple, Loc, visit_list_aux(Elems, Level)};
 visit_aux(Atom = {atom, Loc, Text}, _) -> {atom, Loc, Text};
 visit_aux(Var = {var, Loc, Text}, _) -> {var, Loc, Text};
