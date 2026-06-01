@@ -3,18 +3,14 @@
 
 tokenize(FileName, Output) ->
     {ok, Bin} = file:read_file(FileName),
-    {ok, GenLexFile} = leex:file("lexer"),
-    {ok, Lexer} = compile:file(GenLexFile, [report_errors]),
-    {ok, Tks, _}=Lexer:string(binary_to_list(Bin) ++ "\n__EOF__"),
+    {ok, Tks, _}=lexer:string(binary_to_list(Bin) ++ "\n__EOF__"),
     if Output -> io:format("~p\n", [Tks]); true -> no_output end, Tks.
 
 tokenize(FileName) -> tokenize(FileName, true).
 
 parse(FileName, Output) ->
     Tks = tokenize(FileName, false),
-    {ok, GenParFile} = yecc:file("parser"),
-    {ok, Parser} = compile:file(GenParFile, [report_errors]),
-    {ok, Ast} = Parser:parse(Tks),
+    {ok, Ast} = parser:parse(Tks),
     if Output -> io:format("~p\n", [Ast]); true -> no_output end, Ast.
 
 parse(FileName) -> parse(FileName, true).
@@ -39,7 +35,7 @@ compile(FileName) ->
     lists:foreach(fun(ModAbsFormat = [{attribute, _, module, ModuleName} | _]) ->
         {ok, _, Bin} = compile:forms(ModAbsFormat, [binary]),
         io:format("Saving Module ~p\n", [atom_to_list(ModuleName)]),
-        file:write_file(atom_to_list(ModuleName) ++ ".beam", Bin)
+        file:write_file(filename:dirname(?FILE) ++ "/../_build/default/lib/dulang/ebin/" ++ atom_to_list(ModuleName) ++ ".beam", Bin)
     end, lists:droplast(AbsFormat)).
 
 visit_aux({module, _, {var, Loc, ModuleName}, Clauses}, 0) ->
@@ -99,13 +95,13 @@ visit_aux({op, {Operation, Loc}, Lhs, Rhs}, Level) ->
 visit_aux({cons, {_, Loc}, Lhs, Rhs}, Level) -> {cons, Loc, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 visit_aux({nil, {_, Loc}}, _) -> {nil, Loc};
 visit_aux({tuple, {_, Loc}, Elems}, Level) -> {tuple, Loc, visit_list_aux(Elems, Level)};
-visit_aux(Atom = {atom, Loc, Text}, _) -> {atom, Loc, Text};
-visit_aux(Var = {var, Loc, Text}, _) -> {var, Loc, Text};
+visit_aux(Atom = {atom, _, _}, _) -> Atom;
+visit_aux(Var = {var, _, _}, _) -> Var;
 visit_aux(Int = {integer, _, _}, _) -> Int;
 visit_aux(Str = {string, _, _}, _) -> Str;
 visit_aux(EOF = {eof, _}, 0) -> EOF;
 
-visit_aux(Term, Level) -> io:format("term not found: ~p\n", [Term]), err.
+visit_aux(Term, Level) -> io:format("term (at level ~p) not found: ~p\n", [Level, Term]), err.
 
 visit_list_aux(L, Level) -> lists:map(fun(E) -> visit_aux(E, Level) end, L).
 

@@ -26,14 +26,12 @@
       devShells = forEachSupportedSystem (
         { pkgs, system }:
         {
-          default =
-            pkgs.mkShell
-              {
-                packages =
-                  with pkgs;
-                  [
-                    erlang
-                  ];
+          default = pkgs.mkShell {
+                packages = [ pkgs.erlang pkgs.rebar3 ];
+                shellHook = ''
+                  export SHELL=$(which nu)
+                  exec $SHELL # Run nushell at the start of the dev shell
+                '';
               };
         }
       );
