@@ -5,7 +5,6 @@
 % PendingMessages is a map with Key: ChannelName and Value: {sent, PID From, Tuple of Values} or {expect, PID From, Arity of Expected Tuple}
 manager_listen(Links, PendingMessages) ->
     receive
-        % new messages
         {recv, ChannelName, ParamNumber, From} ->
             case {manager_search_relations(Links, From), PendingMessages} of
                 {
@@ -61,14 +60,14 @@ addRelation(ManPID, First, Second, Channels) -> ManPID ! {relation, First, Secon
 
 send(ManPID, ChannelName, Msg) ->
     ManPID ! {send, ChannelName, Msg, self()},
-    receive ack -> ok end.
+    receive {ChannelName, ack} -> ok end.
 
 recv(ManPID, ChannelName, 0) ->
     ManPID ! {recv, ChannelName, 0, self()},
-    receive ack -> ok end;
+    receive { ChannelName, ack } -> ok end;
 recv(ManPID, ChannelName, ParamNumber) ->
     ManPID ! {recv, ChannelName, ParamNumber, self()},
-    receive Data -> Data end.
+    receive { ChannelName, Data } -> Data end.
 
 print(E) -> io:format("~p\n", [E]).
 

@@ -17,7 +17,7 @@ parse(FileName, Type, Output) ->
     Tks = tokenize(FileName, Type, false),
     {ok, Ast} =
         case Type of
-            dulang -> parser:string(Tks);
+            dulang -> parser:parse(Tks);
             csp -> csp_parser:parse(Tks);
             _ -> error
         end,
@@ -73,12 +73,15 @@ visit_aux({pub, Def}, 0) ->
 visit_aux({function, {var, Loc, Name}, Clauses}, 0) ->
     [{clause, _, {args, ArgsList}, _, _} | _] = Clauses,
     {function, Loc, Name, length(ArgsList), visit_list_aux(Clauses, 1) };
-% Defining lambda functions(Level > 0)
+% Defining inner functions(Level > 0)
 visit_aux({function, {var, Loc, Name}, Clauses}, Level) when Level > 0 ->
     {match,
         Loc, {var, Loc, Name},
         {named_fun, Loc, Name, visit_list_aux(Clauses, Level+1) }
     };
+% Defining anonymous functions
+visit_aux({lambda, {_, Loc}, {args, ArgsList}, Body}, Level) ->
+    {'fun', Loc, {clauses, [{clause, Loc, visit_list_aux(ArgsList, Level), [], visit_list_aux(Body, Level+1)}]} };
 
 visit_aux({clause, {_, Loc}, {args, ArgsList}, {guards, GuardsList}, Body}, Level) ->
     {clause, Loc,
@@ -95,7 +98,11 @@ visit_aux({match, {_, Loc}, Lhs, Rhs}, Level) ->
     {match, Loc, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 
 visit_aux({{fn_call, Loc, [Name]}, Parameters}, Level) ->
-    {call, Loc, {atom, Loc, Name}, visit_list_aux(Parameters, Level+1)};
+    Type = case atom_to_list(Name) of
+        [ H | _ ] when H >= $a, H =< $z -> atom;
+        _ -> var
+    end,
+    {call, Loc, {Type, Loc, Name}, visit_list_aux(Parameters, Level+1)};
 visit_aux({{fn_call, Loc, [ModName, FnName]}, Parameters}, Level) ->
     {call, Loc, {remote, Loc, {atom, Loc, ModName}, {atom, Loc, FnName}}, visit_list_aux(Parameters, Level+1)};
 
@@ -114,4 +121,3 @@ visit_aux(EOF = {eof, _}, 0) -> EOF;
 visit_aux(Term, Level) -> io:format("term (at level ~p) not found: ~p\n", [Level, Term]), err.
 
 visit_list_aux(L, Level) -> lists:map(fun(E) -> visit_aux(E, Level) end, L).
-

@@ -48,6 +48,7 @@ if      : {token, {if_kw, TokenLoc}}.
 pub     : {token, {pub_kw, TokenLoc}}.
 match   : {token, {match_kw, TokenLoc}}.
 mod     : {token, {mod_kw, TokenLoc}}.
+lambda  : {token, {lambda_kw, TokenLoc}}.
 true    : {token, {'true', TokenLoc}}.
 false   : {token, {'false', TokenLoc}}.
 __EOF__ : {token, {eof, TokenLoc}}.

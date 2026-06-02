@@ -1,5 +1,5 @@
 Nonterminals
-	arguments fn_definition func_params clauses clause_aux guards guards_or guards_and
+	arguments lambda_def fn_definition func_params clauses clause_aux guards guards_or guards_and
 	expr match branch sttm sttms block mod_decl mod_decl_aux fn_decl def definitions
 	tuple tuple_aux list list_aux call_func.
 Terminals
@@ -7,7 +7,7 @@ Terminals
 	'+' '-' '*' '/' 'div' 'rem'
 	'==' '/=' '>' '<' '>=' '=<' '::'
 	fn_call asgn
-	match_kw if_kw 'true' 'false' pub_kw mod_kw
+	match_kw if_kw 'true' 'false' pub_kw mod_kw lambda_kw
 	'(' ')' '[' ']' '{' '}'
 	'||' '&&' '=>' '=|' '?' '!' '|' ';' ',' eof.
 
@@ -29,7 +29,7 @@ Left 50 '>='.
 Left 50 '=<'.
 Left 50 '=>'.
 
-Left 20 '!'.
+Right 20 '!'.
 
 Left 10 '||'.
 Left 10 '&&'.
@@ -103,6 +103,10 @@ arguments -> expr ')': ['$1'].
 arguments -> ')': [].
 fn_definition -> '(' arguments guards block : {'clause', '$1', {'args', '$2'}, {'guards', '$3'}, '$4'}.
 fn_definition -> '(' arguments block : {'clause', '$1', {'args', '$2'}, {'guards', []}, '$3'}.
+
+% Function as an expr, anonymous lambda function
+expr -> lambda_def : '$1'.
+lambda_def -> lambda_kw '(' arguments block : {'lambda', '$1', {'args', '$3'}, '$4'}.
 
 % Receive messages
 expr -> '?' fn_definition: {recv, '$1', ['$2']}.
