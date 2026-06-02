@@ -1,19 +1,29 @@
 -module(main).
--export([tokenize/1, parse/1, tokenize/2, parse/2, convert/1, visit/1, compile/1]).
+-export([tokenize/2, parse/2, tokenize/3, parse/3, convert/1, visit/1, compile/1]).
 
-tokenize(FileName, Output) ->
+tokenize(FileName, Type, Output) ->
     {ok, Bin} = file:read_file(FileName),
-    {ok, Tks, _}=lexer:string(binary_to_list(Bin) ++ "\n__EOF__"),
+    {ok, Tks, _} =
+        case Type of
+            dulang -> lexer:string(binary_to_list(Bin) ++ "\n__EOF__");
+            csp -> csp_lexer:string(binary_to_list(Bin) ++ "\n__EOF__");
+            _ -> error
+        end,
     if Output -> io:format("~p\n", [Tks]); true -> no_output end, Tks.
 
-tokenize(FileName) -> tokenize(FileName, true).
+tokenize(FileName, Type) -> tokenize(FileName, Type, true).
 
-parse(FileName, Output) ->
-    Tks = tokenize(FileName, false),
-    {ok, Ast} = parser:parse(Tks),
+parse(FileName, Type, Output) ->
+    Tks = tokenize(FileName, Type, false),
+    {ok, Ast} =
+        case Type of
+            dulang -> parser:string(Tks);
+            csp -> csp_parser:parse(Tks);
+            _ -> error
+        end,
     if Output -> io:format("~p\n", [Ast]); true -> no_output end, Ast.
 
-parse(FileName) -> parse(FileName, true).
+parse(FileName, Type) -> parse(FileName, Type, true).
 
 % Transforms an Erlang file into its Abstract Format
 convert(FileName) -> 
@@ -23,7 +33,7 @@ convert(FileName) ->
     io:format("~s\n", [binary_to_list(Bin)]), ok.
 
 visit(FileName, Output) ->
-    Ast=parse(FileName, false),
+    Ast=parse(FileName, dulang, false),
     AbsFormat = lists:map(fun(Mod) -> visit_aux(Mod, 0) end, Ast),
     if Output -> io:format("~p\n", [AbsFormat]); true -> no_output end,
     AbsFormat.
