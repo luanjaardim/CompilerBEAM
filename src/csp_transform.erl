@@ -1,5 +1,5 @@
 -module(csp_transform).
--export([main/1]).
+-export([main/1, from_csp/3]).
 
 main(FileName) ->
     Ast = main:parse(FileName, csp),
@@ -7,6 +7,30 @@ main(FileName) ->
     io:format("S: ~s,\nInfo: ~p\n", [S, Info]).
 
 context_create() -> {"", #{ channels => #{}, procs => #{} }}.
+
+from_csp(FileName, ModName, ExternalModules = []) ->
+    Ast = main:parse(FileName, csp, false),
+    Context = lists:foldl(fun(Elem, Acc) -> compile(Elem, 1, Acc) end, context_create(), Ast),
+    {S, Info} = compile(spawn_and_start_procs, 1, Context),
+    End = io_lib:format(
+    "mod ~s {\n"
+    "    pub main = () {\n"
+    "        Wait = () { ?(@start) { @ok } };\n"
+    "        PID = spawn(\n"
+    "            lambda () { manager:manager_listen([], maps:new()) }\n"
+    "        );\n"
+    "        Send = (ChannelName, Msg) {\n"
+    "            manager:send(PID, ChannelName, Msg);\n"
+    "        };\n"
+    "        Recv = (ChannelName, ParamNumber) {\n"
+    "            manager:recv(PID, ChannelName, ParamNumber)\n"
+    "        };\n"
+    "~s\n"
+    "    }\n"
+    "}\n",
+    [ModName, S]), io:format("~s", [End]),
+    file:write_file("generated.dulang", list_to_binary(End)),
+    main:compile("generated.dulang").
 
 compile({channel, Number, Channels}, I, {S, Info = #{ channels := DefChannels }}) ->
     Fn = fun Rec(N, [{var, _, ChannelName} | Tail]) -> [{ChannelName, N} | Rec(N, Tail)];
@@ -18,7 +42,7 @@ compile({proc, {var, _, Name}, Choices}, I, {S, Info = #{ procs := Procs }}) ->
     Info_ = Info#{ procs => Procs#{Name => 0} },
     {Body, _} = compile(Choices, I+1, {"", Info_}),
     {
-        S ++ io_lib:format("~s = ({}) {\n~s\n}", [Name, Body]) ++ ";\n",
+        S ++ indent(I, io_lib:format("~s = ({}) {\n", [Name])) ++ Body ++ indent(I, "};\n"),
         Info_
     };
 
@@ -27,8 +51,8 @@ compile({choices, Branches}, I, Context = { _, #{ channels := Channels } }) ->
        lists:map(
          fun(Var) ->
             case treat_event(Var) of
-                {recv, Name, _} -> io_lib:format("PID ! {~p, ~p}", [Name, maps:get(Name, Channels)]);
-                {send, Name, Params} -> io_lib:format("PID ! {~p, ~s}", [Name, list_to_tuple(Params)])
+                {recv, Name, _} -> io_lib:format("PID ! {@recv, @~s, ~p, self()}", [Name, maps:get(Name, Channels)]);
+                {send, Name, Params} -> io_lib:format("PID ! {@send, @~s, ~s, self()}", [Name, into_tuple(Params, Context)])
             end
        end, lists:map(fun(Branch) -> hd(Branch) end, Branches))),
     Separators = ["?"] ++ lists:duplicate(length(Branches)-1, "|"),
@@ -37,27 +61,47 @@ compile({choices, Branches}, I, Context = { _, #{ channels := Channels } }) ->
                 {S, _} = compile(tl(B), I, Context),
                 indent(I, Sep ++ case treat_event(hd(B)) of
                     {send, Name, _} ->
-                        io_lib:format("({~s, {}}) { ~s }", [Name, S]);
+                        io_lib:format("({@~s, {}}) { ~s }", [Name, S]);
                     {recv, Name, Params} ->
-                        io_lib:format("({~s, ~p}) { ~s }", [Name, list_to_tuple(Params), S])
+                        io_lib:format("({@~s, ~s}) { ~s }", [Name, into_tuple(Params, Context), S])
                 end) ++ "\n"
             end, lists:zip(Separators, Branches)),
     { indent(I, InitialReq ++ ";\n") ++ ReceiveBranches, Context };
 
 compile(Events, _, Context = {_, #{channels := Channels, procs := Procs}}) when is_list(Events) ->
-    { lists:join("; ",
-        lists:map(fun(Event) ->
+    { lists:map(fun(Event) ->
             case treat_event(Event) of
                 {recv, Name, Vars} ->
                     case {Channels, Procs} of
-                        {_, #{ Name := _}} -> io_lib:format("~s(~p)", [Name, list_to_tuple(Vars)]);
+                        {_, #{ Name := _}} -> io_lib:format("~s(~s); ", [Name, into_tuple(Vars, Context)]);
                         {#{ Name := _ }, _} ->
-                            io_lib:format("~p = Recv(~s, ~p)", [list_to_tuple(Vars), Name, maps:get(Name, Channels)]);
+                            io_lib:format("~s = Recv(@~s, ~p); ", [into_tuple(Vars, Context), Name, maps:get(Name, Channels)]);
                         _ -> throw(io_lib:format("Variable not defined: ~s", [Name]))
                     end;
-                {send, Name, Params} -> io_lib:format("Send(~s, ~p)", [Name, list_to_tuple(Params)])
+                {send, Name, Params} -> io_lib:format("Send(@~s, ~s); ", [Name, into_tuple(Params, Context)])
             end
-        end, Events)), Context }.
+        end, Events), Context };
+
+compile(spawn_and_start_procs, I, Context = {S, #{ procs := Procs}}) ->
+    ProcsNames = lists:map(fun ({N, _}) -> N end, maps:to_list(Procs)),
+    Spawns = lists:map(fun(Name) ->
+          indent(I, io_lib:format("~s_PID = spawn(lambda () { Wait(); ~s({}) });\n", [Name, Name]))
+    end, ProcsNames),
+    Start = indent(I, lists:foldr(fun(Name, Acc)-> io_lib:format("~s_PID ! ~s", [Name, Acc]) end, "@start", ProcsNames)),
+    { S ++ Spawns ++ Start, Context }.
+
+
+into_tuple(List, C = {_, #{channels := Channels}}) ->
+    "{" ++
+    lists:concat(
+    lists:join(", ", 
+    lists:map(fun(Val) ->
+        case Channels of
+            #{ Val := _ } -> io_lib:format("@~s", [Val]);
+            _ when is_atom(Val) -> io_lib:format("~s", [Val]);
+            _ -> io_lib:format("~p", [Val])
+        end
+    end, List))) ++ "}".
 
 treat_event({var, _, Name}) ->
     {recv, Name, []};

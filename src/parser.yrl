@@ -1,6 +1,6 @@
 Nonterminals
 	arguments lambda_def fn_definition func_params clauses clause_aux guards guards_or guards_and
-	expr match branch sttm sttms block mod_decl mod_decl_aux fn_decl def definitions
+	expr match branch sttm sttms block mod_decl mod_decl_aux send_def send_def_aux fn_decl def definitions
 	tuple tuple_aux list list_aux call_func.
 Terminals
 	integer string var atom
@@ -62,7 +62,9 @@ expr -> expr '>=' expr: {op, '$2', '$1', '$3'}.
 expr -> expr '=<' expr: {op, '$2', '$1', '$3'}.
 
 % Send messages
-expr -> expr '!' expr: {op, '$2', '$1', '$3'}.
+send_def_aux -> expr: '$1'.
+send_def -> expr '!' send_def_aux: {op, '$2', '$1', '$3'}.
+expr -> send_def: '$1'.
 % List append
 expr -> expr '::' expr: {cons, '$2', '$1', '$3'}.
 
@@ -117,8 +119,10 @@ clauses -> '=|' fn_definition: ['$2'].
 clause_aux -> '|'  fn_definition clause_aux: ['$2' | '$3'].
 clause_aux -> '|'  fn_definition: ['$2'].
 
+sttm -> send_def : '$1'.
 sttm -> call_func : '$1'.
 sttm -> fn_decl : '$1'.
+sttm -> tuple asgn expr : {match, '$2', '$1', '$3'}.
 sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
 fn_decl -> var clauses : {function, '$1', '$2'}.
 fn_decl -> var asgn fn_definition : {function, '$1', ['$3']}.

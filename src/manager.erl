@@ -60,11 +60,11 @@ addRelation(ManPID, First, Second, Channels) -> ManPID ! {relation, First, Secon
 
 send(ManPID, ChannelName, Msg) ->
     ManPID ! {send, ChannelName, Msg, self()},
-    receive {ChannelName, {}} -> ok end.
+    receive {ChannelName, {}} -> {} end.
 
 recv(ManPID, ChannelName, 0) ->
     ManPID ! {recv, ChannelName, 0, self()},
-    receive { ChannelName, {} } -> ok end;
+    receive { ChannelName, {} } -> {} end;
 recv(ManPID, ChannelName, ParamNumber) ->
     ManPID ! {recv, ChannelName, ParamNumber, self()},
     receive { ChannelName, Data } -> Data end.
