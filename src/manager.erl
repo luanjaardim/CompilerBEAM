@@ -69,7 +69,7 @@ recv(ManPID, ChannelName, ParamNumber) ->
     ManPID ! {recv, ChannelName, ParamNumber, self()},
     receive { ChannelName, Data } -> Data end.
 
-print(E) -> io:format("~p\n", [E]).
+print(E) -> io:format("~p\n", [E]), E.
 
 % Relations are a list of triples, with the PIDs
 % from the sync processes and Chs are the list of sync channels

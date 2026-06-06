@@ -1,13 +1,13 @@
 Nonterminals
 	proc_def_events proc_def_choices proc_def
-	channel_tuple channel_def_aux channel_def sync_def
+	channel_tuple channel_def_aux channel_def sync_def datatype_variants
 	expr def definitions.
 Terminals
 	integer var
 	'+' '-' '*' '/' div rem
 	'==' '/=' '>' '<' '>=' '=<' ':'
-	asgn true false channel
-	'(' ')' '[' ']' '{' '}' '[]' '->'
+	asgn true false channel nametype datatype
+	'(' ')' '[' ']' '{' '}' '[]' '->' '--#'
 	'[[' '{|' '|}' ']]'
 	'?' '!' '|' ';' ',' '.' '..' eof.
 
@@ -63,7 +63,7 @@ expr -> expr '?' expr: {op, '$2', '$1', '$3'}.
 
 sync_def -> var asgn var '[[' '{|' channel_def_aux '|}' ']]' var : {sync, '$1', {sync_channel, '$3', '$9', '$6'}}.
 
-proc_def_events -> var: ['$1'].
+proc_def_events -> expr: ['$1'].
 proc_def_events -> expr '->' proc_def_events: ['$1' | '$3'].
 proc_def_choices -> proc_def_events : ['$1'].
 proc_def_choices -> proc_def_events '[]' proc_def_choices: ['$1' | '$3'].
@@ -72,11 +72,17 @@ proc_def -> var asgn proc_def_choices: {proc, '$1', {choices, '$3'}}.
 channel_def_aux -> var : ['$1'].
 channel_def_aux -> var ',' channel_def_aux : ['$1' | '$3'].
 channel_def -> channel channel_def_aux : {channel, 0, '$2'}.
-channel_tuple -> '.' expr : 1.
-channel_tuple -> '.' expr channel_tuple: 1 + '$3'.
-channel_tuple -> ':' expr channel_tuple: 1 + '$3'.
+channel_tuple -> expr : 1.
+channel_tuple -> expr '.' channel_tuple: 1 + '$3'.
+channel_tuple -> ':' channel_tuple: '$2'.
 channel_def -> channel channel_def_aux channel_tuple : {channel, '$3', '$2'}.
+channel_def -> '--#' var channel channel_def_aux channel_tuple : {extern, '$2', '$5', '$4'}.
 
+datatype_variants -> var : {ignore}.
+datatype_variants -> var '|' datatype_variants : {ignore}.
+
+def -> nametype var asgn expr: {ignore}.
+def -> datatype var asgn datatype_variants : {ignore}.
 def -> sync_def: '$1'.
 def -> proc_def: '$1'.
 def -> channel_def: '$1'.

@@ -25,6 +25,7 @@ Rules.
 <=   : {token, {'=<', TokenLoc}}.
 =>   : {token, {'=>', TokenLoc}}.
 ->   : {token, {'->', TokenLoc}}.
+--#  : {token, {'--#', TokenLoc}}.
 
 % Separators
 \(    : {token, {'(', TokenLoc}}.
@@ -48,10 +49,12 @@ Rules.
 \|     : {token, {'|', TokenLoc}}.
 
 % Reserved keywords
-channel : {token, {'channel', TokenLoc}}.
-true    : {token, {'true', TokenLoc}}.
-false   : {token, {'false', TokenLoc}}.
-__EOF__ : {token, {eof, TokenLoc}}.
+datatype : {token, {'datatype', TokenLoc}}.
+nametype : {token, {'nametype', TokenLoc}}.
+channel  : {token, {'channel', TokenLoc}}.
+true     : {token, {'true', TokenLoc}}.
+false    : {token, {'false', TokenLoc}}.
+__EOF__  : {token, {eof, TokenLoc}}.
 
 \"[^\"]*\"  : {token, {string, TokenLoc, lists:droplast(tl(TokenChars))}}.
 \-?{DIGIT}+ : {token, {integer, TokenLoc, list_to_integer(TokenChars)}}.
