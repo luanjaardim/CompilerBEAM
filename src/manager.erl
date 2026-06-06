@@ -10,7 +10,7 @@ manager_listen(Links, PendingMessages) ->
                 {
                  {Dest, #{ ChannelName := ParamNumber }}, % ChannelName is sync between Dest and From
                  #{ChannelName := {sent, Dest, Msg}} % And also Dest has already sent Msg on PendingMessages
-                } -> From ! {ChannelName, Msg}, Dest ! {ChannelName, ack},
+                } -> From ! {ChannelName, Msg}, Dest ! {ChannelName, {}},
                     manager_listen(Links, maps:remove(ChannelName, PendingMessages));
 
                 % ChannelName is sync between Dest and From, but will need to wait for Dest to sync
@@ -19,11 +19,11 @@ manager_listen(Links, PendingMessages) ->
 
                 % ChannelName is not synched, but there is already a process expecting a value from this channel
                 { _, #{ChannelName := {sent, AnyDest, Msg}}} ->
-                    From ! {ChannelName, Msg}, AnyDest ! {ChannelName, ack},
+                    From ! {ChannelName, Msg}, AnyDest ! {ChannelName, {}},
                     manager_listen(Links, maps:remove(ChannelName, PendingMessages));
 
                 % if it is an event (ParamNumber == 0) and not synched, just ack the receiver and continue
-                _ when ParamNumber == 0 -> From ! {ChannelName, ack}, manager_listen(Links, PendingMessages);
+                _ when ParamNumber == 0 -> From ! {ChannelName, {}}, manager_listen(Links, PendingMessages);
 
                 % Here we just wait for the value
                 _ -> manager_listen(Links, PendingMessages#{ChannelName => {expect, From, ParamNumber}})
@@ -34,7 +34,7 @@ manager_listen(Links, PendingMessages) ->
                  {Dest, #{ ChannelName := ParamNumber }},      % ChannelName is sync between Dest and From
                  #{ChannelName := {expect, Dest, ParamNumber}} % And also Dest is already expecting for Msg on PendingMessages
                 } ->
-                    From ! {ChannelName, ack}, Dest ! {ChannelName, Msg},
+                    From ! {ChannelName, {}}, Dest ! {ChannelName, Msg},
                     manager_listen(Links, maps:remove(ChannelName, PendingMessages));
 
                 % ChannelName is sync between Dest and From, but will need to wait for Dest to sync
@@ -43,11 +43,11 @@ manager_listen(Links, PendingMessages) ->
 
                 % ChannelName is not synched, but there is already a process expecting a value from this channel
                 { _, #{ChannelName := {expect, AnyDest, _ParamNumber}}} ->
-                    From ! {ChannelName, ack}, AnyDest ! {ChannelName, Msg},
+                    From ! {ChannelName, {}}, AnyDest ! {ChannelName, Msg},
                     manager_listen(Links, maps:remove(ChannelName, PendingMessages));
 
                 % Here we send the value and continue the execution(ack), as we are not synching
-                _ -> From ! {ChannelName, ack}, manager_listen(Links, PendingMessages#{ChannelName => {sent, From, Msg}})
+                _ -> From ! {ChannelName, {}}, manager_listen(Links, PendingMessages#{ChannelName => {sent, From, Msg}})
             end;
         {relation, First, Second, SyncedChs } ->
             manager_listen([{First, Second, SyncedChs} | Links], PendingMessages);
@@ -60,11 +60,11 @@ addRelation(ManPID, First, Second, Channels) -> ManPID ! {relation, First, Secon
 
 send(ManPID, ChannelName, Msg) ->
     ManPID ! {send, ChannelName, Msg, self()},
-    receive {ChannelName, ack} -> ok end.
+    receive {ChannelName, {}} -> ok end.
 
 recv(ManPID, ChannelName, 0) ->
     ManPID ! {recv, ChannelName, 0, self()},
-    receive { ChannelName, ack } -> ok end;
+    receive { ChannelName, {} } -> ok end;
 recv(ManPID, ChannelName, ParamNumber) ->
     ManPID ! {recv, ChannelName, ParamNumber, self()},
     receive { ChannelName, Data } -> Data end.

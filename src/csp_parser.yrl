@@ -61,13 +61,13 @@ expr -> expr '!' expr: {op, '$2', '$1', '$3'}.
 % Recv from channel
 expr -> expr '?' expr: {op, '$2', '$1', '$3'}.
 
-sync_def -> var asgn var '[[' '{|' channel_def_aux '|}' ']]' var : {sync_channel, '$6'}.
+sync_def -> var asgn var '[[' '{|' channel_def_aux '|}' ']]' var : {sync, '$1', {sync_channel, '$3', '$9', '$6'}}.
 
 proc_def_events -> var: ['$1'].
 proc_def_events -> expr '->' proc_def_events: ['$1' | '$3'].
-proc_def_choices -> proc_def_events : {events, '$1'}.
-proc_def_choices -> proc_def_choices '[]' proc_def_choices: {choices, ['$1' | '$3']}.
-proc_def -> var asgn proc_def_choices: {proc, '$1', '$3'}.
+proc_def_choices -> proc_def_events : ['$1'].
+proc_def_choices -> proc_def_events '[]' proc_def_choices: ['$1' | '$3'].
+proc_def -> var asgn proc_def_choices: {proc, '$1', {choices, '$3'}}.
 
 channel_def_aux -> var : ['$1'].
 channel_def_aux -> var ',' channel_def_aux : ['$1' | '$3'].
@@ -82,6 +82,6 @@ def -> proc_def: '$1'.
 def -> channel_def: '$1'.
 
 definitions -> def definitions : ['$1' | '$2'].
-definitions -> eof : ['$1'].
+definitions -> eof : [].
 
 Erlang code.

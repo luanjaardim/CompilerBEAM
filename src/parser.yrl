@@ -117,6 +117,7 @@ clauses -> '=|' fn_definition: ['$2'].
 clause_aux -> '|'  fn_definition clause_aux: ['$2' | '$3'].
 clause_aux -> '|'  fn_definition: ['$2'].
 
+sttm -> call_func : '$1'.
 sttm -> fn_decl : '$1'.
 sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
 fn_decl -> var clauses : {function, '$1', '$2'}.
