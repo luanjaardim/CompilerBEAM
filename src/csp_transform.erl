@@ -6,7 +6,7 @@ main(FileName) ->
     {S, Info} = lists:foldl(fun(Elem, Acc) -> manager:print(Elem), compile(Elem, 1, Acc) end, context_create(), Ast),
     io:format("S: ~s,\nInfo: ~p\n", [S, Info]).
 
-context_create() -> {"", #{ channels => #{}, procs => #{}, extern => #{} }}.
+context_create() -> {"", #{ channels => #{}, procs => #{}, externs => #{}, relations => [] }}.
 
 from_csp(FileName, ModName, ExternalModules = []) ->
     Ast = main:parse(FileName, csp, false),
@@ -68,7 +68,7 @@ compile({choices, Branches}, I, Context = { _, #{ channels := Channels } }) ->
             end, lists:zip(Separators, Branches)),
     { indent(I, InitialReq ++ ";\n") ++ ReceiveBranches, Context };
 
-compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, extern := Externs}}) when is_list(Events) ->
+compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs := Externs}}) when is_list(Events) ->
     { lists:map(fun(Event) ->
             case treat_event(Event) of
                 {recv, 'STOP', _} -> "";
@@ -90,31 +90,49 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, extern 
             end
         end, Events), Context };
 
+compile({sync, _, {sync_channel, {_, _, P1}, {_, _, P2}, Chs}}, I, {S, Info = #{relations := Relations}}) ->
+    {S, Info#{ relations => lists:append([Relations, [{P1, P2, Chs}]])}};
+
 compile({ignore}, _, C) -> C;
 
-compile({extern, {_, _, ModName}, ParamNumber, Vars}, I, {S, Info = #{ extern := Extern }}) ->
-    {S, Info#{ extern => maps:merge(Extern, maps:from_list(lists:map(fun({'var', _, Name}) -> {Name, {ModName, ParamNumber}} end, Vars)))}};
+compile({extern, {_, _, ModName}, ParamNumber, Vars}, I, {S, Info = #{ externs := Externs }}) ->
+    {S, Info#{ externs => maps:merge(Externs, maps:from_list(lists:map(fun({'var', _, Name}) -> {Name, {ModName, ParamNumber}} end, Vars)))}};
 
 compile(spawn_and_start_procs, I, {S, Info = #{ procs := Procs}}) ->
     ProcsNames = lists:map(fun ({N, _}) -> N end, maps:to_list(Procs)),
     Spawns = lists:map(fun(Name) ->
           indent(I, io_lib:format("~s_PID = spawn(lambda () { Wait(); ~s({}) });\n", [Name, Name]))
     end, ProcsNames),
+    Relations = add_relations(I, {"", Info}),
     Start = indent(I, lists:foldr(fun(Name, Acc)-> io_lib:format("~s_PID ! ~s", [Name, Acc]) end, "@start", ProcsNames)),
-    { S ++ Spawns ++ Start, Info }.
+    { S ++ Spawns ++ Relations ++ Start, Info }.
 
+add_relations(I, Context = {_, Info = #{channels := Channels, relations := Relations}}) ->
+    lists:map(
+        fun({P1, P2, Chs}) ->
+            indent(I,
+                io_lib:format("manager:addRelation(PID, ~s_PID, ~s_PID, maps:from_list(~s));\n",
+                [P1, P2, into_list(lists:map(fun({_, _, V})-> {V, maps:get(V, Channels)} end, Chs), Context)]
+            ))
+        end, Relations).
 
-into_tuple(List, C = {_, #{channels := Channels}}) ->
-    "{" ++
+into_tuple(List, Context) -> into_compound(List, Context, {"{", "}"}).
+into_list(List, Context) -> into_compound(List, Context, {"[", "]"}).
+
+into_compound(List, C = {_, #{channels := Channels}}, Delimiters = {Beg ,End}) ->
+    % TODO: Fix the usage of Atoms from datatype
+    Beg ++
     lists:concat(
     lists:join(", ", 
     lists:map(fun(Val) ->
         case Channels of
             #{ Val := _ } -> io_lib:format("@~s", [Val]);
             _ when is_atom(Val) -> io_lib:format("~s", [Val]);
+            _ when is_tuple(Val) -> into_compound(tuple_to_list(Val), C, {"{", "}"});
+            _ when is_list(Val) -> into_compound(Val, C, {"[", "]"});
             _ -> io_lib:format("~p", [Val])
         end
-    end, List))) ++ "}".
+    end, List))) ++ End.
 
 treat_event({var, _, Name}) ->
     {recv, Name, []};
