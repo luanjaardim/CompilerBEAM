@@ -1,5 +1,5 @@
 -module(csp_transform).
--export([main/1, from_csp/2]).
+-export([main/1, from_csp/2, from_csp/3]).
 
 main(FileName) ->
     Ast = main:parse(FileName, csp),
@@ -8,7 +8,7 @@ main(FileName) ->
 
 context_create() -> {"", #{ channels => #{}, procs => #{}, externs => #{}, relations => [] }}.
 
-from_csp(FileName, ModName) ->
+from_csp(FileName, ModName, Debug) ->
     Ast = main:parse(FileName, csp, false),
     Context = lists:foldl(fun(Elem, Acc) -> compile(Elem, 1, Acc) end, context_create(), Ast),
     {S, Info} = compile(spawn_and_start_procs, 1, Context),
@@ -31,6 +31,8 @@ from_csp(FileName, ModName) ->
     [ModName, S]), io:format("S: ~s, Info: ~p", [End, Info]),
     file:write_file("generated.dulang", list_to_binary(End)),
     main:compile("generated.dulang").
+
+from_csp(FileName, ModName) -> from_csp(FileName, ModName, true).
 
 compile({channel, Number, Channels}, I, {S, Info = #{ channels := DefChannels }}) ->
     Fn = fun Rec(N, [{var, _, ChannelName} | Tail]) -> [{ChannelName, N} | Rec(N, Tail)];

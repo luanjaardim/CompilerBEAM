@@ -8,7 +8,7 @@ Terminals
 	'==' '/=' '>' '<' '>=' '=<' ':'
 	asgn true false channel nametype datatype
 	'(' ')' '[' ']' '{' '}' '[]' '->' '--#'
-	'[[' '{|' '|}' ']]'
+	'[|' '{|' '|}' '|]'
 	'?' '!' '|' ';' ',' '.' '..' eof.
 
 Rootsymbol definitions.
@@ -61,7 +61,7 @@ expr -> expr '!' expr: {op, '$2', '$1', '$3'}.
 % Recv from channel
 expr -> expr '?' expr: {op, '$2', '$1', '$3'}.
 
-sync_def -> var asgn var '[[' '{|' channel_def_aux '|}' ']]' var : {sync, '$1', {sync_channel, '$3', '$9', '$6'}}.
+sync_def -> var asgn var '[|' '{|' channel_def_aux '|}' '|]' var : {sync, '$1', {sync_channel, '$3', '$9', '$6'}}.
 
 proc_def_events -> expr: ['$1'].
 proc_def_events -> expr '->' proc_def_events: ['$1' | '$3'].

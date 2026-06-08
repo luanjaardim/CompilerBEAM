@@ -1,5 +1,5 @@
 -module(manager).
--export([manager_listen/2, manager_listen/3, addRelation/4, send/3, recv/3, print/1]).
+-export([manager_listen/2, manager_listen/3, addRelation/4, send/3, recv/3, print/1, debug/3]).
 
 % Links is a list of triples: {Dest, From, Synced Channels}
 % PendingMessages is a map with Key: ChannelName and Value:
