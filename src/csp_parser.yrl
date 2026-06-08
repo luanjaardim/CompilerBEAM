@@ -84,11 +84,11 @@ channel_tuple -> ':' channel_tuple: '$2'.
 channel_def -> channel channel_def_aux channel_tuple : {channel, '$3', '$2'}.
 channel_def -> '--#' var channel channel_def_aux channel_tuple : {extern, '$2', '$5', '$4'}.
 
-datatype_variants -> var : {ignore}.
-datatype_variants -> var '|' datatype_variants : {ignore}.
+datatype_variants -> var : ['$1'].
+datatype_variants -> var '|' datatype_variants : [ '$1' | '$3' ].
 
 def -> nametype var asgn expr: {ignore}.
-def -> datatype var asgn datatype_variants : {ignore}.
+def -> datatype var asgn datatype_variants : {datatype, '$4'}.
 def -> sync_def: '$1'.
 def -> proc_def: '$1'.
 def -> channel_def: '$1'.

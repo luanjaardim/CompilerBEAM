@@ -6,7 +6,7 @@ main(FileName) ->
     {S, Info} = lists:foldl(fun(Elem, Acc) -> manager:print(Elem), compile(Elem, 1, Acc) end, context_create(), Ast),
     io:format("S: ~s,\nInfo: ~p\n", [S, Info]).
 
-context_create() -> {"", #{ channels => #{}, procs => #{}, externs => #{}, relations => [] }}.
+context_create() -> {"", #{ channels => #{}, procs => #{}, externs => #{}, relations => [], atoms => #{} }}.
 
 from_csp(FileName, ModName, Debug) ->
     Ast = main:parse(FileName, csp, false),
@@ -96,6 +96,9 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs
 compile({sync, {_, _, Name}, {sync_channel, {_, _, P1}, {_, _, P2}, Chs}}, I, {S, Info = #{relations := Relations}}) ->
     {S, Info#{ relations => [{Name, {[P1, P2], Chs}}| Relations]}};
 
+compile({datatype, Datatypes}, _, {S, Info = #{ atoms := Atoms }}) ->
+    {S, Info#{ atoms => maps:merge(Atoms, maps:from_list(lists:map(fun({_,_,D})-> {D, {}} end, Datatypes)))}};
+
 compile({ignore}, _, C) -> C;
 
 compile({extern, {_, _, ModName}, ParamNumber, Vars}, I, {S, Info = #{ externs := Externs }}) ->
@@ -143,14 +146,14 @@ add_relations(I, Context = {_, Info = #{channels := Channels, procs := Procs, re
 into_tuple(List, Context) -> into_compound(List, Context, {"{", "}"}).
 into_list(List, Context) -> into_compound(List, Context, {"[", "]"}).
 
-into_compound(List, C = {_, #{channels := Channels}}, Delimiters = {Beg ,End}) ->
-    % TODO: Fix the usage of Atoms from datatype
+into_compound(List, C = {_, #{channels := Channels, atoms := Atoms}}, Delimiters = {Beg ,End}) ->
     Beg ++
     lists:concat(
     lists:join(", ", 
     lists:map(fun(Val) ->
-        case Channels of
-            #{ Val := _ } -> io_lib:format("@~s", [Val]);
+        case {Channels, Atoms} of
+            {#{ Val := _ }, _} -> io_lib:format("@~s", [Val]);
+            {_, #{ Val := _ }} -> io_lib:format("@~s", [Val]);
             _ when is_atom(Val) -> io_lib:format("~s", [Val]);
             _ when is_tuple(Val) -> into_compound(tuple_to_list(Val), C, {"{", "}"});
             _ when is_list(Val) -> into_compound(Val, C, {"[", "]"});
