@@ -1,7 +1,8 @@
 Nonterminals
 	proc_def_events proc_def_choices proc_def
 	channel_tuple channel_def_aux channel_def sync_def datatype_variants
-	expr def definitions.
+	set set_aux expr def definitions.
+
 Terminals
 	integer var
 	'+' '-' '*' '/' div rem
@@ -54,7 +55,12 @@ expr -> expr '>=' expr: {op, '$2', '$1', '$3'}.
 expr -> expr '=<' expr: {op, '$2', '$1', '$3'}.
 
 % Sets
-expr -> '{' integer '..' integer '}' : {set, '$2', '$4'}.
+expr -> '{' integer '..' integer '}' : {set, {range, '$2', '$4'}}.
+set_aux -> '}' : [].
+set_aux -> expr '}': ['$1'].
+set_aux -> expr ',' set_aux : ['$1' | '$3'].
+set -> '{' set_aux : {tuple, '$1', '$2'}.
+expr -> set: '$1'.
 
 % Send to channel
 expr -> expr '!' expr: {op, '$2', '$1', '$3'}.

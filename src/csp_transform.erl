@@ -28,7 +28,8 @@ from_csp(FileName, ModName, Debug) ->
     "~s\n"
     "    }\n"
     "}\n",
-    [ModName, S]), io:format("S: ~s, Info: ~p", [End, Info]),
+    [ModName, S]),
+    manager:debug("S: ~s, Info: ~p", [End, Info], Debug),
     file:write_file("generated.dulang", list_to_binary(End)),
     main:compile("generated.dulang").
 
@@ -164,7 +165,11 @@ treat_event({op, {'!', _}, {var, _, Name}, Rest}) ->
 treat_event({op, {'?', _}, {var, _, Name}, Rest}) ->
     {recv, Name, treat_event_aux(Rest)}.
 
+treat_event_aux({tuple, _, Val}) -> 
+    [list_to_tuple(lists:concat(lists:map(fun(V)-> treat_event_aux(V) end, Val)))];
 treat_event_aux({_, _, Val}) -> [Val];
+treat_event_aux({op, _, {tuple, _, Val}, Rest}) -> 
+    [list_to_tuple(lists:concat(lists:map(fun(V)-> treat_event_aux(V) end, Val))) | treat_event_aux(Rest)];
 treat_event_aux({op, _, {_, _, Val}, Rest}) -> [Val | treat_event_aux(Rest)].
 
 indent(I, S) -> lists:concat(lists:duplicate(I, "\t")) ++ S.
