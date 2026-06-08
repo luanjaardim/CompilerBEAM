@@ -1,5 +1,5 @@
 -module(csp_transform).
--export([main/1, from_csp/3]).
+-export([main/1, from_csp/2]).
 
 main(FileName) ->
     Ast = main:parse(FileName, csp),
@@ -8,7 +8,7 @@ main(FileName) ->
 
 context_create() -> {"", #{ channels => #{}, procs => #{}, externs => #{}, relations => [] }}.
 
-from_csp(FileName, ModName, ExternalModules = []) ->
+from_csp(FileName, ModName) ->
     Ast = main:parse(FileName, csp, false),
     Context = lists:foldl(fun(Elem, Acc) -> compile(Elem, 1, Acc) end, context_create(), Ast),
     {S, Info} = compile(spawn_and_start_procs, 1, Context),
@@ -17,7 +17,7 @@ from_csp(FileName, ModName, ExternalModules = []) ->
     "    pub main = () {\n"
     "        Wait = () { ?(@start) { @ok } };\n"
     "        PID = spawn(\n"
-    "            lambda () { manager:manager_listen([], maps:new()) }\n"
+    "            lambda () { manager:manager_listen([], maps:new(), @false) }\n"
     "        );\n"
     "        Send = (ChannelName, Msg) {\n"
     "            manager:send(PID, ChannelName, Msg);\n"
@@ -90,8 +90,8 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs
             end
         end, Events), Context };
 
-compile({sync, _, {sync_channel, {_, _, P1}, {_, _, P2}, Chs}}, I, {S, Info = #{relations := Relations}}) ->
-    {S, Info#{ relations => lists:append([Relations, [{P1, P2, Chs}]])}};
+compile({sync, {_, _, Name}, {sync_channel, {_, _, P1}, {_, _, P2}, Chs}}, I, {S, Info = #{relations := Relations}}) ->
+    {S, Info#{ relations => [{Name, {[P1, P2], Chs}}| Relations]}};
 
 compile({ignore}, _, C) -> C;
 
@@ -107,14 +107,35 @@ compile(spawn_and_start_procs, I, {S, Info = #{ procs := Procs}}) ->
     Start = indent(I, lists:foldr(fun(Name, Acc)-> io_lib:format("~s_PID ! ~s", [Name, Acc]) end, "@start", ProcsNames)),
     { S ++ Spawns ++ Relations ++ Start, Info }.
 
-add_relations(I, Context = {_, Info = #{channels := Channels, relations := Relations}}) ->
-    lists:map(
-        fun({P1, P2, Chs}) ->
-            indent(I,
-                io_lib:format("manager:addRelation(PID, ~s_PID, ~s_PID, maps:from_list(~s));\n",
-                [P1, P2, into_list(lists:map(fun({_, _, V})-> {V, maps:get(V, Channels)} end, Chs), Context)]
-            ))
-        end, Relations).
+add_relations(I, Context = {_, Info = #{channels := Channels, procs := Procs, relations := Relations}}) ->
+    Dependencies = lists:foldr(fun({Name, {Ks = [P1, P2], Chs}}, M)->
+                    {L, Ch} = case {M, M} of
+                        {#{ P1 := { P1s, Ch1s }}, #{ P2 := { P2s, Ch2s } }} -> {P1s ++ P2s, Chs ++ Ch1s ++ Ch2s};
+                        {#{ P1 := {P1s, Ch1s} }, _} -> {P1s ++ [P2], Chs ++ Ch1s};
+                        {_, #{ P2 := {P2s, Ch2s} }} -> {[P1] ++ P2s, Chs ++ Ch2s};
+                        {_, _} -> {[P1, P2], Chs}
+                    end,
+                    maps:without(Ks, M#{ Name => {
+                        lists:uniq(L),
+                        lists:uniq(
+                            lists:map(fun({_, _, V})-> V;
+                                         (V)-> V end, Ch))
+                    }})
+                end, #{}, Relations),
+    Pairs = fun Rec([]) ->
+                    [];
+                Rec([H | T]) ->
+                    [{H, X} || X <- T] ++ Rec(T)
+            end,
+              manager:print(Dependencies),
+    maps:fold(fun(_, {SyncProcs, SyncChannels}, S) ->
+              P = Pairs(SyncProcs),
+              S ++ lists:concat(
+                  lists:map(fun({P1, P2}) ->
+                      indent(I, io_lib:format("manager:addRelation(PID, ~s_PID, ~s_PID, maps:from_list(~s));\n",
+                      [P1, P2, into_list(lists:map(fun(V)-> {V, maps:get(V, Channels)} end, SyncChannels), Context)]))
+              end, P))
+    end, "", Dependencies).
 
 into_tuple(List, Context) -> into_compound(List, Context, {"{", "}"}).
 into_list(List, Context) -> into_compound(List, Context, {"[", "]"}).
