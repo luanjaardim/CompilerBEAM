@@ -1,0 +1,8 @@
+mod utils {
+	pub print = (Msg) { io:format("~p\n", [Msg]); Msg }
+	pub delay = ({Time}) { timer:sleep(Time); }
+}
+
+mod debug {
+	pub panic = () { self() ! {@debug, @panic} }
+}

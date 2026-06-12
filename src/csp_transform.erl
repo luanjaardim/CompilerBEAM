@@ -1,15 +1,10 @@
 -module(csp_transform).
--export([main/1, from_csp/2, from_csp/3]).
-
-main(FileName) ->
-    Ast = main:parse(FileName, csp),
-    {S, Info} = lists:foldl(fun(Elem, Acc) -> manager:print(Elem), compile(Elem, 1, Acc) end, context_create(), Ast),
-    io:format("S: ~s,\nInfo: ~p\n", [S, Info]).
+-export([from_csp/2, from_csp/3]).
 
 context_create() -> {"", #{ channels => #{}, procs => #{}, externs => #{}, relations => [], atoms => #{} }}.
 
 from_csp(FileName, ModName, Debug) ->
-    Ast = main:parse(FileName, csp, false),
+    Ast = compiler:parse(FileName, csp, false),
     Context = lists:foldl(fun(Elem, Acc) -> compile(Elem, 1, Acc) end, context_create(), Ast),
     {S, Info} = compile(spawn_and_start_procs, 1, Context),
     End = io_lib:format(
@@ -31,7 +26,7 @@ from_csp(FileName, ModName, Debug) ->
     [ModName, S]),
     manager:debug("S: ~s, Info: ~p", [End, Info], Debug),
     file:write_file("generated.dulang", list_to_binary(End)),
-    main:compile("generated.dulang").
+    compiler:compile("generated.dulang").
 
 from_csp(FileName, ModName) -> from_csp(FileName, ModName, true).
 
@@ -133,7 +128,6 @@ add_relations(I, Context = {_, Info = #{channels := Channels, procs := Procs, re
                 Rec([H | T]) ->
                     [{H, X} || X <- T] ++ Rec(T)
             end,
-              manager:print(Dependencies),
     maps:fold(fun(_, {SyncProcs, SyncChannels}, S) ->
               P = Pairs(SyncProcs),
               S ++ lists:concat(

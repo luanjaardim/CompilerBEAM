@@ -117,8 +117,6 @@ recv(ManPID, ChannelName, ParamNumber) ->
     ManPID ! {recv, ChannelName, ParamNumber, self()},
     receive { ChannelName, Data } -> Data end.
 
-print(E) -> io:format("~p\n", [E]), E.
-
 debug(S, Es, true) -> io:format(S++"\n", Es);
 debug(_, _, false) -> ok.
 

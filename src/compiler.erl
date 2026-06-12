@@ -1,5 +1,5 @@
--module(main).
--export([tokenize/2, parse/2, tokenize/3, parse/3, convert/1, visit/1, compile/1]).
+-module(compiler).
+-export([tokenize/2, parse/2, tokenize/3, parse/3, convert/1, visit/1, compile/1, compile_dulang_dir/0]).
 
 tokenize(FileName, Type, Output) ->
     {ok, Bin} = file:read_file(FileName),
@@ -44,9 +44,14 @@ compile(FileName) ->
     AbsFormat = visit(FileName, false),
     lists:foreach(fun(ModAbsFormat = [{attribute, _, module, ModuleName} | _]) ->
         {ok, _, Bin} = compile:forms(ModAbsFormat, [binary]),
-        io:format("Saving Module ~p\n", [atom_to_list(ModuleName)]),
+        io:format("Saving Dulang Module ~p\n", [atom_to_list(ModuleName)]),
         file:write_file(filename:dirname(?FILE) ++ "/../_build/default/lib/dulang/ebin/" ++ atom_to_list(ModuleName) ++ ".beam", Bin)
     end, lists:droplast(AbsFormat)).
+
+compile_dulang_dir() ->
+    Dir = "./src_dulang/",
+    {ok, Files} = file:list_dir(Dir),
+    lists:foreach(fun(F) -> compile(Dir ++ F) end, Files).
 
 visit_aux({module, _, {var, Loc, ModuleName}, Clauses}, 0) ->
     ModuleDefinitions = visit_list_aux(Clauses, 0),
