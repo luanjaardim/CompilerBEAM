@@ -1,10 +1,10 @@
 Nonterminals
-	proc_def_events proc_def_choices proc_def
+	proc_def_events proc_def_choices proc_def proc proc_aux proc_args
 	channel_tuple channel_def_aux channel_def sync_def datatype_variants
 	seq seq_aux expr def definitions.
 
 Terminals
-	integer var
+	integer var proc_call
 	'+' '-' '*' '/' div rem
 	'==' '/=' '>' '<' '>=' '=<' ':'
 	asgn true false channel nametype datatype
@@ -34,7 +34,7 @@ Right 20 '?'.
 
 expr -> '(' expr ')' : '$2'.
 expr -> integer : '$1'.
-expr -> var : '$1'.
+expr -> proc : '$1'.
 expr -> 'true' : '$1'.
 expr -> 'false': '$1'.
 
@@ -67,13 +67,21 @@ expr -> expr '!' expr: {op, '$2', '$1', '$3'}.
 % Recv from channel
 expr -> expr '?' expr: {op, '$2', '$1', '$3'}.
 
-sync_def -> var asgn var '[|' '{|' channel_def_aux '|}' '|]' var : {sync, '$1', {sync_channel, '$3', '$9', '$6'}}.
+sync_def -> proc asgn proc '[|' '{|' channel_def_aux '|}' '|]' proc : {sync, '$1', {sync_channel, '$3', '$9', '$6'}}.
+
+proc_args -> ')' : [].
+proc_args -> expr ')' : ['$1'].
+proc_args -> expr ',' proc_args : ['$1' | '$3'].
+proc_aux -> '(' proc_args proc_aux : ['$2' | '$3'].
+proc_aux -> '(' proc_args : ['$2'].
+proc -> var proc_aux : {proc_call, '$1', '$2'}.
+proc -> var : '$1'.
 
 proc_def_events -> expr: ['$1'].
 proc_def_events -> expr '->' proc_def_events: ['$1' | '$3'].
 proc_def_choices -> proc_def_events : ['$1'].
 proc_def_choices -> proc_def_events '[]' proc_def_choices: ['$1' | '$3'].
-proc_def -> var asgn proc_def_choices: {proc, '$1', {choices, '$3'}}.
+proc_def -> proc asgn proc_def_choices: {proc, '$1', {choices, '$3'}}.
 
 channel_def_aux -> var : ['$1'].
 channel_def_aux -> var ',' channel_def_aux : ['$1' | '$3'].

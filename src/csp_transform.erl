@@ -30,17 +30,24 @@ from_csp(FileName, ModName, Debug) ->
 
 from_csp(FileName, ModName) -> from_csp(FileName, ModName, true).
 
-compile({channel, Number, Channels}, I, {S, Info = #{ channels := DefChannels }}) ->
+compile({channel, Number, Channels}, _I, {S, Info = #{ channels := DefChannels }}) ->
     Fn = fun Rec(N, [{var, _, ChannelName} | Tail]) -> [{ChannelName, N} | Rec(N, Tail)];
              Rec(_, []) -> [] end,
     {S, Info#{ channels => maps:merge(maps:from_list(Fn(Number, Channels)), DefChannels) }};
 
-compile({proc, {var, _, Name}, Choices}, I, {S, Info = #{ procs := Procs }}) ->
+compile({proc, Val, Choices}, I, {S, Info = #{ procs := Procs }}) ->
     % TODO: have a proc that can receive parameters
-    Info_ = Info#{ procs => Procs#{Name => 0} },
+    {ProcName, ProcArgs} = case get_val(Val) of
+                       {proc_call, Name, Args} -> {Name, Args};
+                       NotProcCall -> {NotProcCall, []}
+                   end,
+    Info_ = Info#{ procs => Procs#{ProcName => 0} },
     {Body, _} = compile(Choices, I+1, {"", Info_}),
     {
-        S ++ indent(I, io_lib:format("~s = ({}) {\n", [Name])) ++ Body ++ indent(I, "};\n"),
+        S ++
+        indent(I, io_lib:format("~s = ~s {\n", [ProcName, convert_proc_args_to_str(ProcArgs, {"", Info_})])) ++
+        Body ++
+        indent(I, "};\n"),
         Info_
     };
 
@@ -69,10 +76,12 @@ compile({choices, Branches}, I, Context = { _, #{ channels := Channels } }) ->
 compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs := Externs}}) when is_list(Events) ->
     { lists:map(fun(Event) ->
             case treat_event(Event) of
+                {proc_call, Name, ProcArgs} ->
+                    io_lib:format("~s~s; ", [Name, convert_proc_args_to_str(ProcArgs, Context)]);
                 {recv, 'STOP', _} -> "";
                 {recv, Name, Vars} ->
                     case {Channels, Procs, Externs} of
-                        {_, #{ Name := _}, _} -> io_lib:format("~s(~s); ", [Name, into_tuple(Vars, Context)]);
+                        {_, #{ Name := _}, _} -> io_lib:format("~s(); ", [Name]);
                         {#{ Name := ParamsNumber }, _, _} ->
                             io_lib:format("~s = Recv(@~s, ~p); ", [into_tuple(Vars, Context), Name, ParamsNumber]);
                         {_, _, #{ Name := {_, ParamsNumber} }} ->
@@ -88,7 +97,7 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs
             end
         end, Events), Context };
 
-compile({sync, {_, _, Name}, {sync_channel, {_, _, P1}, {_, _, P2}, Chs}}, I, {S, Info = #{relations := Relations}}) ->
+compile({sync, {_, _, Name}, {sync_channel, {_, _, P1}, {_, _, P2}, Chs}}, _I, {S, Info = #{relations := Relations}}) ->
     {S, Info#{ relations => [{Name, {[P1, P2], Chs}}| Relations]}};
 
 compile({datatype, Datatypes}, _, {S, Info = #{ atoms := Atoms }}) ->
@@ -96,7 +105,7 @@ compile({datatype, Datatypes}, _, {S, Info = #{ atoms := Atoms }}) ->
 
 compile({ignore}, _, C) -> C;
 
-compile({extern, {_, _, ModName}, ParamNumber, Vars}, I, {S, Info = #{ externs := Externs }}) ->
+compile({extern, {_, _, ModName}, ParamNumber, Vars}, _I, {S, Info = #{ externs := Externs }}) ->
     {S, Info#{ externs => maps:merge(Externs, maps:from_list(lists:map(fun({'var', _, Name}) -> {Name, {ModName, ParamNumber}} end, Vars)))}};
 
 compile(spawn_and_start_procs, I, {S, Info = #{ procs := Procs}}) ->
@@ -108,7 +117,7 @@ compile(spawn_and_start_procs, I, {S, Info = #{ procs := Procs}}) ->
     Start = indent(I, lists:foldr(fun(Name, Acc)-> io_lib:format("~s_PID ! ~s", [Name, Acc]) end, "@start", ProcsNames)),
     { S ++ Spawns ++ Relations ++ Start, Info }.
 
-add_relations(I, Context = {_, Info = #{channels := Channels, procs := Procs, relations := Relations}}) ->
+add_relations(I, Context = {_, #{channels := Channels, relations := Relations}}) ->
     Dependencies = lists:foldr(fun({Name, {Ks = [P1, P2], Chs}}, M)->
                     {L, Ch} = case {M, M} of
                         {#{ P1 := { P1s, Ch1s }}, #{ P2 := { P2s, Ch2s } }} -> {P1s ++ P2s, Chs ++ Ch1s ++ Ch2s};
@@ -140,10 +149,10 @@ add_relations(I, Context = {_, Info = #{channels := Channels, procs := Procs, re
 into_tuple(List, Context) -> into_compound(List, Context, {"{", "}"}).
 into_list(List, Context) -> into_compound(List, Context, {"[", "]"}).
 
-into_compound(List, C = {_, #{channels := Channels, atoms := Atoms}}, Delimiters = {Beg ,End}) ->
+into_compound(List, C = {_, #{channels := Channels, atoms := Atoms}}, _Delimiters = {Beg ,End}) ->
     Beg ++
     lists:concat(
-    lists:join(", ", 
+    lists:join(", ",
     lists:map(fun(Val) ->
         case {Channels, Atoms} of
             {#{ Val := _ }, _} -> io_lib:format("@~s", [Val]);
@@ -160,13 +169,23 @@ treat_event({var, _, Name}) ->
 treat_event({op, {'!', _}, {var, _, Name}, Rest}) ->
     {send, Name, treat_event_aux(Rest)};
 treat_event({op, {'?', _}, {var, _, Name}, Rest}) ->
-    {recv, Name, treat_event_aux(Rest)}.
+    {recv, Name, treat_event_aux(Rest)};
+treat_event(Val = {proc_call, {var, _, _Name}, _Args}) ->
+    get_val(Val).
 
-treat_event_aux({tuple, _, Val}) -> 
-    [list_to_tuple(lists:concat(lists:map(fun(V)-> treat_event_aux(V) end, Val)))];
-treat_event_aux({_, _, Val}) -> [Val];
-treat_event_aux({op, _, {tuple, _, Val}, Rest}) -> 
-    [list_to_tuple(lists:concat(lists:map(fun(V)-> treat_event_aux(V) end, Val))) | treat_event_aux(Rest)];
-treat_event_aux({op, _, {_, _, Val}, Rest}) -> [Val | treat_event_aux(Rest)].
+treat_event_aux({op, _, Val, Rest}) -> [get_val(Val) | treat_event_aux(Rest)];
+treat_event_aux(Val) -> [get_val(Val)].
+
+get_val({var, _, Val}) -> Val;
+get_val({integer, _, Val}) -> Val;
+get_val({seq, _, Val}) -> list_to_tuple(lists:map(fun(E) -> get_val(E) end, Val));
+get_val({proc_call, {var, _, Name}, Val}) ->
+    {proc_call, Name, lists:map(fun(Params) -> lists:map(fun(E) -> get_val(E) end, Params) end, Val)}.
+
+convert_proc_args_to_str(ProcArgs, Context) ->
+    case ProcArgs of
+        [] -> "()";
+        _ -> "(" ++ lists:join(")(", lists:map(fun(Ps) -> into_compound(Ps, Context, {"{", "}"}) end, ProcArgs)) ++ ")"
+    end.
 
 indent(I, S) -> lists:concat(lists:duplicate(I, "\t")) ++ S.
