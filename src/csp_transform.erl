@@ -1,16 +1,15 @@
 -module(csp_transform).
--export([from_csp/2, from_csp/3]).
+-export([from_csp/3, from_csp/4]).
 
 context_create() -> {"", #{ channels => #{}, procs => #{}, externs => #{}, relations => [], atoms => #{} }}.
 
-from_csp(FileName, ModName, Debug) ->
+from_csp(FileName, ModName, ToProbe, Debug) ->
     Ast = compiler:parse(FileName, csp, false),
     Context = lists:foldl(fun(Elem, Acc) -> compile(Elem, 1, Acc) end, context_create(), Ast),
-    {S, Info} = compile(spawn_and_start_procs, 1, Context),
+    {S, Info} = compile({spawn_and_start_procs, ToProbe}, 1, Context),
     End = io_lib:format(
     "mod ~s {\n"
     "    pub main = () {\n"
-    "        Wait = () { ?(@start) { @ok } };\n"
     "        PID = spawn(\n"
     "            lambda () { manager:manager_listen([], maps:new(), @false) }\n"
     "        );\n"
@@ -21,6 +20,7 @@ from_csp(FileName, ModName, Debug) ->
     "            manager:recv(PID, ChannelName, ParamNumber)\n"
     "        };\n"
     "~s\n"
+    "        PID ! @start\n"
     "    }\n"
     "}\n",
     [ModName, S]),
@@ -28,7 +28,7 @@ from_csp(FileName, ModName, Debug) ->
     file:write_file("generated.dulang", list_to_binary(End)),
     compiler:compile("generated.dulang").
 
-from_csp(FileName, ModName) -> from_csp(FileName, ModName, true).
+from_csp(FileName, ModName, ToProbe) -> from_csp(FileName, ModName, ToProbe, true).
 
 compile({channel, Number, Channels}, _I, {S, Info = #{ channels := DefChannels }}) ->
     Fn = fun Rec(N, [{var, _, ChannelName} | Tail]) -> [{ChannelName, N} | Rec(N, Tail)];
@@ -97,8 +97,8 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs
             end
         end, Events), Context };
 
-compile({sync, {_, _, Name}, {sync_channel, {_, _, P1}, {_, _, P2}, Chs}}, _I, {S, Info = #{relations := Relations}}) ->
-    {S, Info#{ relations => [{Name, {[P1, P2], Chs}}| Relations]}};
+compile({sync, {_, _, Name}, {sync_channel, P1, P2, Chs}}, _I, {S, Info = #{relations := Relations}}) ->
+    {S, Info#{ relations => [{Name, {[get_val(P1), get_val(P2)], Chs}}| Relations]}};
 
 compile({datatype, Datatypes}, _, {S, Info = #{ atoms := Atoms }}) ->
     {S, Info#{ atoms => maps:merge(Atoms, maps:from_list(lists:map(fun({_,_,D})-> {D, {}} end, Datatypes)))}};
@@ -108,43 +108,28 @@ compile({ignore}, _, C) -> C;
 compile({extern, {_, _, ModName}, ParamNumber, Vars}, _I, {S, Info = #{ externs := Externs }}) ->
     {S, Info#{ externs => maps:merge(Externs, maps:from_list(lists:map(fun({'var', _, Name}) -> {Name, {ModName, ParamNumber}} end, Vars)))}};
 
-compile(spawn_and_start_procs, I, {S, Info = #{ procs := Procs}}) ->
-    ProcsNames = lists:map(fun ({N, _}) -> N end, maps:to_list(Procs)),
-    Spawns = lists:map(fun(Name) ->
-          indent(I, io_lib:format("~s_PID = spawn(lambda () { Wait(); ~s({}) });\n", [Name, Name]))
-    end, ProcsNames),
-    Relations = add_relations(I, {"", Info}),
-    Start = indent(I, lists:foldr(fun(Name, Acc)-> io_lib:format("~s_PID ! ~s", [Name, Acc]) end, "@start", ProcsNames)),
-    { S ++ Spawns ++ Relations ++ Start, Info }.
-
-add_relations(I, Context = {_, #{channels := Channels, relations := Relations}}) ->
-    Dependencies = lists:foldr(fun({Name, {Ks = [P1, P2], Chs}}, M)->
-                    {L, Ch} = case {M, M} of
-                        {#{ P1 := { P1s, Ch1s }}, #{ P2 := { P2s, Ch2s } }} -> {P1s ++ P2s, Chs ++ Ch1s ++ Ch2s};
-                        {#{ P1 := {P1s, Ch1s} }, _} -> {P1s ++ [P2], Chs ++ Ch1s};
-                        {_, #{ P2 := {P2s, Ch2s} }} -> {[P1] ++ P2s, Chs ++ Ch2s};
-                        {_, _} -> {[P1, P2], Chs}
-                    end,
-                    maps:without(Ks, M#{ Name => {
-                        lists:uniq(L),
-                        lists:uniq(
-                            lists:map(fun({_, _, V})-> V;
-                                         (V)-> V end, Ch))
-                    }})
-                end, #{}, Relations),
-    Pairs = fun Rec([]) ->
-                    [];
-                Rec([H | T]) ->
-                    [{H, X} || X <- T] ++ Rec(T)
-            end,
-    maps:fold(fun(_, {SyncProcs, SyncChannels}, S) ->
-              P = Pairs(SyncProcs),
-              S ++ lists:concat(
-                  lists:map(fun({P1, P2}) ->
-                      indent(I, io_lib:format("manager:addRelation(PID, ~s_PID, ~s_PID, maps:from_list(~s));\n",
-                      [P1, P2, into_list(lists:map(fun(V)-> {V, maps:get(V, Channels)} end, SyncChannels), Context)]))
-              end, P))
-    end, "", Dependencies).
+% TODO: receive args for the ToProbe process
+compile({spawn_and_start_procs, ToProbe}, I_, C={S, Info = #{ procs := Procs, relations := Relations, channels := Channels }}) ->
+    SpawnProc = fun Rec(Name, Args, I) ->
+        case {Procs, maps:from_list(Relations)} of
+            {_, #{Name := {[P1, P2], SyncChannels}}} ->
+              S1 = case P1 of {proc_call, N1, A1s} -> Rec(N1, A1s, I+1); _ -> Rec(P1, [], I+1) end,
+              S2 = case P2 of {proc_call, N2, A2s} -> Rec(N2, A2s, I+1); _ -> Rec(P2, [], I+1) end,
+              indent(I, "manager:add_relation(PID,\n") ++
+              lists:join(",\n",
+                  [ S1, S2, indent(I+1, into_list(lists:map(fun(V)-> Val = get_val(V), {Val, maps:get(Val, Channels)} end, SyncChannels), C))])
+              ++ "\n" ++ indent(I, ")")
+              ;
+            {#{Name := _}, _} ->
+                utils:print(Args),
+                case Args of
+                  [As] -> indent(I, io_lib:format("manager:spawn_proc(PID, @~s, ~s, ~s)", [Name, Name, into_tuple(As, C)]));
+                  [] -> indent(I, io_lib:format("manager:spawn_proc(PID, @~s, ~s, @none)", [Name, Name]));
+                  _ -> throw(not_implemented)
+                end;
+            _ -> throw("Could not start the Process")
+        end
+    end, { S ++ SpawnProc(ToProbe, [], I_) ++ ";", Info}.
 
 into_tuple(List, Context) -> into_compound(List, Context, {"{", "}"}).
 into_list(List, Context) -> into_compound(List, Context, {"[", "]"}).

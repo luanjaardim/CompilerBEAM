@@ -1,11 +1,12 @@
 -module(manager).
--export([manager_listen/2, manager_listen/3, addRelation/4, send/3, recv/3, print/1, debug/3]).
+-export([manager_listen/2, manager_listen/3, add_relation/4, spawn_proc/4, send/3, recv/3, debug/3]).
 
 % Links is a list of triples: {Dest, From, Synced Channels}
 % PendingMessages is a map with Key: ChannelName and Value:
 %       {sent, sync or async (to know if the PendingMessage is from a channel that is sync or not), PID From, Tuple of Values} 
 %       or {expect, sync or async, PID From, Arity of Expected Tuple}
-manager_listen(Links, PendingMessages, Debug) ->
+% Context contain all spawned procs and their PID
+manager_listen(Links, PendingMessages, Context, Debug) ->
     receive
         {recv, ChannelName, ParamNumber, From} ->
             debug("Received a 'recv' with (~s, ~p) from ~p.", [ChannelName, ParamNumber, From], Debug),
@@ -58,7 +59,7 @@ manager_listen(Links, PendingMessages, Debug) ->
                                     MatchChannelNotSynced()
                             end, SearchAnyRelOnPendingMessages(Relations, async);
                     [] -> MatchChannelNotSynced()
-                end, Debug);
+                end, Context, Debug);
         {send, ChannelName, Msg, From} ->
             debug("Received a 'send' with (~s, ~p) from ~p.", [ChannelName, Msg, From], Debug),
             MatchChannelNotSynced = fun() ->
@@ -97,14 +98,43 @@ manager_listen(Links, PendingMessages, Debug) ->
                                     MatchChannelNotSynced()
                             end, SearchAnyRelOnPendingMessages(Relations, async);
                     [] -> MatchChannelNotSynced()
-                end, Debug);
-        {relation, First, Second, SyncedChs } ->
+                end, Context, Debug);
+        {relation, First, Second, SyncedChs} ->
             debug("Adding a relation between (~p, ~p) with ~p", [First, Second, SyncedChs], Debug),
-            manager_listen([{First, Second, SyncedChs} | Links], PendingMessages, Debug)
+            manager_listen([{First, Second, maps:from_list(SyncedChs)} | Links], PendingMessages, Context, Debug);
+        {spawn_proc, Proc, ProcFunction, Args, From} ->
+            debug("Creating a Proc ~s with args: ~p", [Proc, Args], Debug),
+            #{pids := Pids} = Context,
+            % TODO: Args is none a list a of lists(so we can call: P(1)(2)), define a function that create a inner function for each params
+            SpawnProc = fun() ->
+                receive
+                    {start, As} -> case As of none -> ProcFunction(); _ -> ProcFunction(As) end
+                end
+            end,
+            PID = spawn(SpawnProc),
+            From ! PID,
+            NewContext = case Pids of
+                #{Proc := L} ->  #{pids => Pids#{ Proc => [{PID, Args} | L]}};
+                _ -> #{pids => Pids#{ Proc => [{PID, Args}]}}
+            end, manager_listen(Links, PendingMessages, NewContext, Debug);
+        start ->
+            debug("Starting all created Procs...", [], Debug),
+            maps:foreach(fun(_, PIDs) ->
+                lists:foreach(fun({PID, Arguments}) ->
+                     PID ! {start, Arguments} end, PIDs) end, maps:get(pids, Context)),
+            manager_listen(Links, PendingMessages, Context, Debug)
     end.
-manager_listen(Links, PendingMessages) -> manager_listen(Links, PendingMessages, false).
+manager_listen(Links, PendingMessages, Debug) -> manager_listen(Links, PendingMessages, create_context(), Debug).
+manager_listen(Links, PendingMessages) -> manager_listen(Links, PendingMessages, create_context(), false).
 
-addRelation(ManPID, First, Second, Channels) -> ManPID ! {relation, First, Second, Channels}.
+create_context() -> #{pids => #{}}.
+
+% Lhs and Rhs
+add_relation(ManPID, Lhs, Rhs, Channels) ->
+    lists:foreach(fun(X)->
+        lists:foreach(fun(Y)-> ManPID ! {relation, X, Y, Channels} end, Rhs) end, Lhs),
+    Lhs ++ Rhs.
+spawn_proc(ManPID, Proc, Func, Args) -> ManPID ! {spawn_proc, Proc, Func, Args, self()}, receive PID -> [PID] end.
 
 send(ManPID, ChannelName, Msg) ->
     ManPID ! {send, ChannelName, Msg, self()},
