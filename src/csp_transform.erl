@@ -41,11 +41,12 @@ compile({proc, Val, Choices}, I, {S, Info = #{ procs := Procs }}) ->
                        {proc_call, Name, Args} -> {Name, Args};
                        NotProcCall -> {NotProcCall, []}
                    end,
+    {S_, Begin} = case Procs of #{ProcName := _} -> {lists:droplast(lists:droplast(S))++"\n", "|"}; _ -> {S, io_lib:format("~s =|", [ProcName])} end,
     Info_ = Info#{ procs => Procs#{ProcName => 0} },
     {Body, _} = compile(Choices, I+1, {"", Info_}),
     {
-        S ++
-        indent(I, io_lib:format("~s = ~s {\n", [ProcName, convert_proc_args_to_str(ProcArgs, {"", Info_})])) ++
+        S_ ++
+        indent(I, io_lib:format("~s ~s {\n", [Begin, convert_proc_args_to_str(ProcArgs, {"", Info_})])) ++
         Body ++
         indent(I, "};\n"),
         Info_
@@ -138,12 +139,16 @@ into_compound(List, C = {_, #{channels := Channels, atoms := Atoms}}, _Delimiter
     Beg ++
     lists:concat(
     lists:join(", ",
-    lists:map(fun(Val) ->
+    lists:map(fun Rec(Val) ->
         case {Channels, Atoms} of
             {#{ Val := _ }, _} -> io_lib:format("@~s", [Val]);
             {_, #{ Val := _ }} -> io_lib:format("@~s", [Val]);
             _ when is_atom(Val) -> io_lib:format("~s", [Val]);
-            _ when is_tuple(Val) -> into_compound(tuple_to_list(Val), C, {"{", "}"});
+            _ when is_tuple(Val) -> 
+                case Val of
+                    {expr, Op, Lhs, Rhs} ->  io_lib:format("~s ~s ~s", [Rec(Lhs), Op, Rec(Rhs)]);
+                    _ -> into_compound(tuple_to_list(Val), C, {"{", "}"})
+                end;
             _ when is_list(Val) -> into_compound(Val, C, {"[", "]"});
             _ -> io_lib:format("~p", [Val])
         end
@@ -165,7 +170,8 @@ get_val({var, _, Val}) -> Val;
 get_val({integer, _, Val}) -> Val;
 get_val({seq, _, Val}) -> list_to_tuple(lists:map(fun(E) -> get_val(E) end, Val));
 get_val({proc_call, {var, _, Name}, Val}) ->
-    {proc_call, Name, lists:map(fun(Params) -> lists:map(fun(E) -> get_val(E) end, Params) end, Val)}.
+    {proc_call, Name, lists:map(fun(Params) -> lists:map(fun(E) -> get_val(E) end, Params) end, Val)};
+get_val({expr, {Op, _}, Lhs, Rhs}) -> {expr, Op, get_val(Lhs), get_val(Rhs)}.
 
 convert_proc_args_to_str(ProcArgs, Context) ->
     case ProcArgs of

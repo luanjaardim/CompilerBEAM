@@ -39,10 +39,10 @@ expr -> 'true' : '$1'.
 expr -> 'false': '$1'.
 
 % Arithmetical operations
-expr -> expr '+' expr : {op, '$2', '$1', '$3'}.
-expr -> expr '-' expr : {op, '$2', '$1', '$3'}.
-expr -> expr '*' expr : {op, '$2', '$1', '$3'}.
-expr -> expr '/' expr : {op, '$2', '$1', '$3'}.
+expr -> expr '+' expr : {expr, '$2', '$1', '$3'}.
+expr -> expr '-' expr : {expr, '$2', '$1', '$3'}.
+expr -> expr '*' expr : {expr, '$2', '$1', '$3'}.
+expr -> expr '/' expr : {expr, '$2', '$1', '$3'}.
 expr -> expr 'div' expr : {op, '$2', '$1', '$3'}.
 expr -> expr 'rem' expr : {op, '$2', '$1', '$3'}.
 

@@ -32,7 +32,7 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
             manager_listen(Links,
                 case manager_search_relations(Links, From) of
                     % TODO: if it is an event it should wait for everyone that has a relation with it to sync
-                    Relations -> 
+                    Relations = [ _ | _ ] ->
                         debug("~p will try sync with '~s' on relations: ~p.", [From, ChannelName, Relations], Debug),
                         SearchAnyRelOnPendingMessages = 
                             fun Rec([{Dest, #{ ChannelName := _}} | T], _) ->
@@ -77,12 +77,12 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
             end,
             manager_listen(Links,
                 case manager_search_relations(Links, From) of
-                    Relations ->
+                    Relations = [_ | _] ->
                         SearchAnyRelOnPendingMessages = 
                             fun Rec([{Dest, #{ ChannelName := _}} | T], _) ->
                                     case PendingMessages of
                                          % Dest has already sent Msg on PendingMessages
-                                         #{ChannelName := {expect, sync, Dest, ParamNumber}} ->
+                                         #{ChannelName := {expect, sync, Dest, _}} ->
                                             debug("Sync with ~s between (~p, ~p): ~p", [ChannelName, From, Dest, Msg], Debug),
                                             From ! {ChannelName, {}}, Dest ! {ChannelName, Msg},
                                             maps:remove(ChannelName, PendingMessages);
