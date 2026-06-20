@@ -11,7 +11,7 @@ from_csp(FileName, ModName, ToProbe, Debug) ->
     "mod ~s {\n"
     "    pub main = () {\n"
     "        PID = spawn(\n"
-    "            lambda () { manager:manager_listen([], maps:new(), @false) }\n"
+    "            lambda () { manager:manager_listen([], maps:new(), @" ++ atom_to_list(Debug) ++ ") }\n"
     "        );\n"
     "        Send = (ChannelName, Msg) {\n"
     "            manager:send(PID, ChannelName, Msg);\n"
@@ -24,11 +24,11 @@ from_csp(FileName, ModName, ToProbe, Debug) ->
     "    }\n"
     "}\n",
     [ModName, S]),
-    manager:debug("S: ~s, Info: ~p", [End, Info], Debug),
+    case Debug of true -> io:format("S: ~s, Info: ~p", [End, Info]); _ -> ok end,
     file:write_file("generated.dulang", list_to_binary(End)),
     compiler:compile("generated.dulang").
 
-from_csp(FileName, ModName, ToProbe) -> from_csp(FileName, ModName, ToProbe, true).
+from_csp(FileName, ModName, ToProbe) -> from_csp(FileName, ModName, ToProbe, false).
 
 compile({channel, Number, Channels}, _I, {S, Info = #{ channels := DefChannels }}) ->
     Fn = fun Rec(N, [{var, _, ChannelName} | Tail]) -> [{ChannelName, N} | Rec(N, Tail)];
@@ -79,7 +79,7 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs
             case treat_event(Event) of
                 {proc_call, Name, ProcArgs} ->
                     io_lib:format("~s~s; ", [Name, convert_proc_args_to_str(ProcArgs, Context)]);
-                {recv, 'STOP', _} -> "";
+                {recv, 'STOP', _} -> "@stop";
                 {recv, Name, Vars} ->
                     case {Channels, Procs, Externs} of
                         {_, #{ Name := _}, _} -> io_lib:format("~s(); ", [Name]);
@@ -122,7 +122,6 @@ compile({spawn_and_start_procs, ToProbe}, I_, C={S, Info = #{ procs := Procs, re
               ++ "\n" ++ indent(I, ")")
               ;
             {#{Name := _}, _} ->
-                utils:print(Args),
                 case Args of
                   [As] -> indent(I, io_lib:format("manager:spawn_proc(PID, @~s, ~s, ~s)", [Name, Name, into_tuple(As, C)]));
                   [] -> indent(I, io_lib:format("manager:spawn_proc(PID, @~s, ~s, @none)", [Name, Name]));

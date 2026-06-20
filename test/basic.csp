@@ -1,0 +1,8 @@
+channel a, b
+channel c: {1..2}
+
+P = a -> b -> c!1 -> c!2 -> P
+
+Q = a -> c!1 -> Q
+	[]
+    b -> c!2 -> Q

@@ -1,0 +1,20 @@
+channel a, b
+channel c: {1..10}
+
+Q = c?1 -> a -> b -> Q
+	[]
+    b -> a -> STOP
+P = c!1 -> a -> b -> Q
+R = c?X -> c!X -> STOP
+
+SYN_QP = Q [| {|a, b|} |] P
+SYN_RP = P [| {|c|} |] R
+
+X = a -> b -> STOP
+Y = b -> a -> STOP
+Z = a -> b -> Z
+	[]
+    b -> a -> Z
+
+SYN_XZ  = X [| {|a, b|} |] Z
+SYN_XYZ = SYN_XZ [| {|a, b|} |] Y
