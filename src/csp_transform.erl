@@ -101,6 +101,9 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs
 compile({sync, {_, _, Name}, {sync_channel, P1, P2, Chs}}, _I, {S, Info = #{relations := Relations}}) ->
     {S, Info#{ relations => [{Name, {[get_val(P1), get_val(P2)], Chs}}| Relations]}};
 
+compile({paralel, {_, _, Name}, P1, P2}, _I, {S, Info = #{relations := Relations}}) ->
+    {S, Info#{ relations => [{Name, {[get_val(P1), get_val(P2)], []}}| Relations]}};
+
 compile({datatype, Datatypes}, _, {S, Info = #{ atoms := Atoms }}) ->
     {S, Info#{ atoms => maps:merge(Atoms, maps:from_list(lists:map(fun({_,_,D})-> {D, {}} end, Datatypes)))}};
 

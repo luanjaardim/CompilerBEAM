@@ -78,6 +78,7 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
             manager_listen(Links,
                 case manager_search_relations(Links, From) of
                     Relations = [_ | _] ->
+                        debug("~p will try sync with '~s' on relations: ~p.", {}, [From, ChannelName, Relations], Debug),
                         SearchAnyRelOnPendingMessages = 
                             fun Rec([{Dest, #{ ChannelName := _}} | T], _) ->
                                     case PendingMessages of

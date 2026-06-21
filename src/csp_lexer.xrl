@@ -28,25 +28,26 @@ Rules.
 --#  : {token, {'--#', TokenLoc}}.
 
 % Separators
-\(    : {token, {'(', TokenLoc}}.
-\)    : {token, {')', TokenLoc}}.
-\[\]  : {token, {'[]', TokenLoc}}.
-\[\|  : {token, {'[|', TokenLoc}}.
-\|\]  : {token, {'|]', TokenLoc}}.
-\{\|  : {token, {'{|', TokenLoc}}.
-\|\}  : {token, {'|}', TokenLoc}}.
-\[    : {token, {'[', TokenLoc}}.
-\]    : {token, {']', TokenLoc}}.
-\{    : {token, {'{', TokenLoc}}.
-\}    : {token, {'}', TokenLoc}}.
-\:\:  : {token, {'::', TokenLoc}}.
-\:    : {token, {':', TokenLoc}}.
-;     : {token, {';', TokenLoc}}.
-,     : {token, {',', TokenLoc}}.
-\.    : {token, {'.', TokenLoc}}.
-\.\.  : {token, {'..', TokenLoc}}.
-#     : {token, {'#', TokenLoc}}.
+\(     : {token, {'(', TokenLoc}}.
+\)     : {token, {')', TokenLoc}}.
+\[\]   : {token, {'[]', TokenLoc}}.
+\[\|   : {token, {'[|', TokenLoc}}.
+\|\]   : {token, {'|]', TokenLoc}}.
+\{\|   : {token, {'{|', TokenLoc}}.
+\|\}   : {token, {'|}', TokenLoc}}.
+\[     : {token, {'[', TokenLoc}}.
+\]     : {token, {']', TokenLoc}}.
+\{     : {token, {'{', TokenLoc}}.
+\}     : {token, {'}', TokenLoc}}.
+\:\:   : {token, {'::', TokenLoc}}.
+\:     : {token, {':', TokenLoc}}.
+;      : {token, {';', TokenLoc}}.
+,      : {token, {',', TokenLoc}}.
+\.     : {token, {'.', TokenLoc}}.
+\.\.   : {token, {'..', TokenLoc}}.
+#      : {token, {'#', TokenLoc}}.
 \|     : {token, {'|', TokenLoc}}.
+\|\|\| : {token, {'|||', TokenLoc}}.
 
 % Reserved keywords
 datatype : {token, {'datatype', TokenLoc}}.

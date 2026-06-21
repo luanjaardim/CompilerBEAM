@@ -1,6 +1,6 @@
 Nonterminals
 	proc_def_events proc_def_choices proc_def proc proc_aux proc_args
-	channel_tuple channel_def_aux channel_def sync_def datatype_variants
+	channel_tuple channel_def_aux channel_def sync_def paralel_def datatype_variants
 	seq seq_aux expr def definitions.
 
 Terminals
@@ -10,7 +10,7 @@ Terminals
 	asgn true false channel nametype datatype
 	'(' ')' '[' ']' '{' '}' '[]' '->' '--#'
 	'[|' '{|' '|}' '|]'
-	'?' '!' '|' ';' ',' '.' '..' eof.
+	'?' '!' '|' '|||' ';' ',' '.' '..' eof.
 
 Rootsymbol definitions.
 
@@ -68,6 +68,7 @@ expr -> expr '!' expr: {op, '$2', '$1', '$3'}.
 expr -> expr '?' expr: {op, '$2', '$1', '$3'}.
 
 sync_def -> proc asgn proc '[|' '{|' channel_def_aux '|}' '|]' proc : {sync, '$1', {sync_channel, '$3', '$9', '$6'}}.
+paralel_def -> proc asgn proc '|||' proc : {paralel, '$1', '$3', '$5'}.
 
 proc_args -> ')' : [].
 proc_args -> expr ')' : ['$1'].
@@ -98,6 +99,7 @@ datatype_variants -> var '|' datatype_variants : [ '$1' | '$3' ].
 def -> nametype var asgn expr: {ignore}.
 def -> datatype var asgn datatype_variants : {datatype, '$4'}.
 def -> sync_def: '$1'.
+def -> paralel_def: '$1'.
 def -> proc_def: '$1'.
 def -> channel_def: '$1'.
 
