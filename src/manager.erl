@@ -15,7 +15,7 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                 % ChannelName is not synched, but there is already a process expecting a value from this channel
                 #{ChannelName := {sent, async, AnyDest, Msg}} ->
                     debug("~p received with ~s an async Msg(~p) from ~p", {}, [From, ChannelName, Msg, AnyDest], Debug),
-                    From ! {ChannelName, Msg}, AnyDest ! {ChannelName, {}},
+                    From ! {ChannelName, Msg},
                     maps:remove(ChannelName, PendingMessages);
 
                 % if it is an event (ParamNumber == 0) and not synched, just ack the receiver and continue
