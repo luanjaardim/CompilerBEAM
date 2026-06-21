@@ -1,0 +1,8 @@
+datatype values = SOME | NONE
+channel a, b: values
+--# utils
+channel print: {1..3}
+
+P = a!SOME -> b!SOME -> a?Msg -> b!Msg -> STOP
+Q = a?Msg -> b?Msg -> a!NONE -> b?NONE -> STOP
+PQ = P ||| Q

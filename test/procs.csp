@@ -1,0 +1,12 @@
+datatype values = FIRST | SECOND | THIRD
+channel a, b
+channel c: {1..10}
+
+P(10) = a -> b -> c!10 -> STOP
+P(X)  = a -> b -> c!X  -> P(X+1)
+Q = c!1 -> P(2)
+
+R(FIRST) = c!1 -> R(SECOND)
+R(SECOND) = c!2 -> R(THIRD)
+R(THIRD) = c!3 -> STOP
+S = a -> b -> R(FIRST)

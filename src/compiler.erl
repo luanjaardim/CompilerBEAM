@@ -46,7 +46,7 @@ compile(FileName) ->
         {ok, _, Bin} = compile:forms(ModAbsFormat, [binary]),
         io:format("Saving Dulang Module ~p\n", [atom_to_list(ModuleName)]),
         file:write_file(filename:dirname(?FILE) ++ "/../_build/default/lib/dulang/ebin/" ++ atom_to_list(ModuleName) ++ ".beam", Bin)
-    end, lists:droplast(AbsFormat)).
+    end, lists:droplast(AbsFormat)), ok.
 
 compile_dulang_dir() ->
     Dir = "./src_dulang/",

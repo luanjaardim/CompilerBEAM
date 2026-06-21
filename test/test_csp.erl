@@ -1,5 +1,5 @@
 -module(test_csp).
--export([sync_qp/0, sync_rp/0, sync_xz/0, basic_p/0, basic_q/0]).
+-export([sync_qp/0, sync_rp/0, sync_xz/0, basic_p/0, basic_q/0, procs_q/0, procs_s/0, communication_pq/0]).
 
 sync_qp() ->
     Logs = testing:get_log("./test/sync.csp", 'SYN_QP'),
@@ -128,4 +128,53 @@ basic_q() ->
           testing:sent(c, {1}, Q),
           testing:sent(c, {2}, Q)
       ]))
+    ]), C).
+
+procs_q() ->
+    Logs = testing:get_log("./test/procs.csp", 'Q'),
+    {[Q], C} = testing:spawn_procs([{'Q', none}], Logs),
+    testing:expect(testing:all_of([
+        testing:assert_start(),
+        testing:sent(c, {1}, Q),
+        testing:loop(testing:all_of([
+          testing:received(a, Q),
+          testing:received(b, Q),
+          testing:any_of(lists:map(fun(V) -> testing:sent(c, {V}, Q) end, lists:seq(2, 10)))
+        ]))
+    ]), C).
+
+procs_s() ->
+    Logs = testing:get_log("./test/procs.csp", 'S'),
+    {[S], C} = testing:spawn_procs([{'S', none}], Logs),
+    testing:expect(testing:all_of([
+        testing:assert_start(),
+        testing:received(a, S),
+        testing:received(b, S),
+        testing:sent(c, {1}, S),
+        testing:sent(c, {2}, S),
+        testing:sent(c, {3}, S)
+    ]), C).
+
+communication_pq() ->
+    Logs = testing:get_log("./test/communication.csp", 'PQ'),
+    {[P, Q], C} = testing:spawn_procs([{'P', none}, {'Q', none}], Logs),
+    testing:expect(testing:all_of([
+      testing:assert_relation(P, Q, #{}),
+      testing:assert_start(),
+      testing:all_of([
+        testing:before(
+          [testing:sent(a, {'SOME'}, P)],
+          testing:sent(b, {'SOME'}, P)),
+        testing:before(
+          [testing:received(a, Q)],
+          testing:received(b, Q))
+      ]),
+      testing:all_of([
+        testing:before(
+          [testing:sent(a, {'NONE'}, Q)],
+          testing:received(b, Q)),
+        testing:before(
+          [testing:received(a, P)],
+          testing:sent(b, {'NONE'}, P))
+      ])
     ]), C).
