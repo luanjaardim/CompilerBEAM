@@ -1,14 +1,17 @@
 -module(testing).
--export([get_log/2, spawn_procs/2, assert_relation/3, assert_start/0, assert_not_false/1, times/2, loop/1, all_of/1, any_of/1, before/2,
+-export([get_log/2, spawn_procs/2, assert_relation/3, assert_start/0, times/2, loop/1, all_of/1, any_of/1, before/2,
         synched/3, received/2, sent/3, expect/2, show_state/0]).
 
 get_log(FileName, ToProbe) ->
+    code:purge(test),
     file:delete(".log"),
     csp_transform:from_csp(FileName, test, ToProbe, log),
-    test:main(), % Execute the compiled CSP file
+    code:load_file(test),
+    MAN_PID = test:main(), % Execute the compiled CSP file
     % A predefined time before read the log file
     io:format("Running ~s from ~s...\n", [ToProbe, FileName]),
     timer:sleep(1000),
+    MAN_PID ! kill, % Cleaning remaining procs
     {ok, Logs} = file:consult(".log"), Logs.
 
 all_of(L) -> fun(S) -> lists:foldl(fun (_, false)-> false; (F, S_)-> F(S_) end, S, L) end.
@@ -61,14 +64,11 @@ assert_relation(P1, P2, Chs) ->
         case hd(S) of
         {add_relation, P1, P2, Chs} -> tl(S);
         {add_relation, P2, P1, Chs} -> tl(S);
-        _ -> throw(relation_not_found)
+        _ -> false
         end
     end.
 
 assert_start() -> fun(S) -> {start} = hd(S), tl(S) end.
-
-assert_not_false(false) -> throw(is_false);
-assert_not_false(S) -> S.
 
 received(ChName, PID) -> fun(S) -> case S of [{recv, ChName, PID} | Rest] -> Rest; _ -> false end end.
 sent(ChName, Msg, PID) -> fun(S) -> case S of [{send, ChName, Msg, PID} | Rest] -> Rest; _ -> false end end.

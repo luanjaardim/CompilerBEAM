@@ -43,9 +43,12 @@ visit(FileName) -> visit(FileName, true).
 compile(FileName) ->
     AbsFormat = visit(FileName, false),
     lists:foreach(fun(ModAbsFormat = [{attribute, _, module, ModuleName} | _]) ->
-        {ok, _, Bin} = compile:forms(ModAbsFormat, [binary]),
-        io:format("Saving Dulang Module ~p\n", [atom_to_list(ModuleName)]),
-        file:write_file(filename:dirname(?FILE) ++ "/../_build/default/lib/dulang/ebin/" ++ atom_to_list(ModuleName) ++ ".beam", Bin)
+        case compile:forms(ModAbsFormat, [binary]) of
+            {ok, _, Bin} ->
+                io:format("Saving Dulang Module ~p\n", [atom_to_list(ModuleName)]),
+                file:write_file(filename:dirname(?FILE) ++ "/../_build/default/lib/dulang/ebin/" ++ atom_to_list(ModuleName) ++ ".beam", Bin);
+            _ -> throw(compile_fail)
+        end
     end, lists:droplast(AbsFormat)), ok.
 
 compile_dulang_dir() ->

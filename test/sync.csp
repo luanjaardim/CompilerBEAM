@@ -1,4 +1,5 @@
 channel a, b
+channel w, x, y, z
 channel c: {1..10}
 
 Q = c?1 -> a -> b -> Q
@@ -10,11 +11,11 @@ R = c?X -> c!X -> STOP
 SYN_QP = Q [| {|a, b|} |] P
 SYN_RP = P [| {|c|} |] R
 
-X = a -> b -> STOP
-Y = b -> a -> STOP
-Z = a -> b -> Z
+X = w -> x -> STOP
+Y = y -> z -> STOP
+Z = w -> x -> Z
 	[]
-    b -> a -> Z
+    y -> z -> Z
 
-SYN_XZ  = X [| {|a, b|} |] Z
-SYN_XYZ = SYN_XZ [| {|a, b|} |] Y
+SYN_XZ  = X [| {|w, x, y, z|} |] Z
+SYN_XZY = SYN_XZ [| {|w, x, y, z|} |] Y

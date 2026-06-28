@@ -1,5 +1,14 @@
 -module(test_csp).
--export([sync_qp/0, sync_rp/0, sync_xz/0, basic_p/0, basic_q/0, procs_q/0, procs_s/0, communication_pq/0]).
+-export([test_all/0, sync_qp/0, sync_rp/0, sync_xz/0, sync_xzy/0, basic_p/0, basic_q/0, procs_q/0, procs_s/0, communication_pq/0, external_p/0]).
+
+test_all() ->
+    lists:foreach(
+      fun({Name, _})
+      when Name /= module_info, Name /= test_all ->
+          apply(test_csp, Name, []);
+      (_) -> false
+      end,
+    module_info(exports)).
 
 sync_qp() ->
     Logs = testing:get_log("./test/sync.csp", 'SYN_QP'),
@@ -58,27 +67,59 @@ sync_xz() ->
     {[X, Z], C} = testing:spawn_procs([{'X', none}, {'Z', none}], Logs),
     testing:expect(
         testing:all_of([
-            testing:assert_relation(X, Z, #{a => 0, b => 0}),
+            testing:assert_relation(X, Z, #{w => 0, x => 0, y => 0, z => 0}),
             testing:assert_start(),
             testing:before([
-                testing:received(a, X),
-                testing:received(a, Z)
-            ], testing:synched(a, X, Z)),
+                testing:received(w, X),
+                testing:received(w, Z)
+            ], testing:synched(w, X, Z)),
             testing:before([
-                testing:received(b, X),
-                testing:received(b, Z)
-            ], testing:synched(b, X, Z)),
+                testing:received(x, X),
+                testing:received(x, Z)
+            ], testing:synched(x, X, Z)),
 
-            % At this point Z will block in 'a' and 'b'
-            testing:times(2, testing:any_of([
-                testing:received(a, Z),
-                testing:received(b, Z)
+            % At this point Z will block in 'w' and 'y'
+            testing:loop(testing:any_of([
+                testing:received(w, Z),
+                testing:received(y, Z)
             ]))
         ]),
         C).
 
-% TODO: complete this test.
-% sync_xyz() -> Logs = testing:get_log("./test/sync.csp", 'SYN_XYZ').
+sync_xzy() ->
+    Logs = testing:get_log("./test/sync.csp", 'SYN_XZY'),
+    {[X, Z, Y], C} = testing:spawn_procs([{'X', none}, {'Z', none}, {'Y', none}], Logs),
+    testing:expect(testing:all_of([
+        % Relations
+        testing:times(3, testing:any_of([
+            testing:assert_relation(X, Z, #{w => 0, x => 0, y => 0, z => 0}),
+            testing:assert_relation(Z, Y, #{w => 0, x => 0, y => 0, z => 0}),
+            testing:assert_relation(X, Y, #{w => 0, x => 0, y => 0, z => 0})
+        ])),
+        testing:assert_start(),
+        testing:before([
+            testing:received(w, X),
+            testing:received(w, Z)
+        ], testing:synched(w, X, Z)),
+        testing:before([
+            testing:received(x, X),
+            testing:received(x, Z)
+        ], testing:synched(x, X, Z)),
+        testing:before([
+            testing:received(y, Y),
+            testing:received(y, Z)
+        ], testing:synched(y, Y, Z)),
+        testing:before([
+            testing:received(z, Y),
+            testing:received(z, Z)
+        ], testing:synched(z, Y, Z)),
+
+        % At this point Z will block in 'w' and 'y'
+        testing:loop(testing:any_of([
+            testing:received(w, Z),
+            testing:received(y, Z)
+        ]))
+    ]), C).
 
 basic_p() ->
     Logs = testing:get_log("./test/basic.csp", 'P'),
@@ -177,4 +218,22 @@ communication_pq() ->
           [testing:received(a, P)],
           testing:sent(b, {'NONE'}, P))
       ])
+    ]), C).
+
+external_p() ->
+    Logs = testing:get_log("./test/external.csp", 'MAIN'),
+    {[P], C} = testing:spawn_procs([{'MAIN', none}], Logs),
+    testing:expect(testing:all_of([
+        testing:assert_start(),
+        testing:received(beg, P),
+        testing:all_of(
+            lists:foldl(fun(I, Acc) ->
+                [ testing:received(beg, P),
+                  testing:sent(exp, {math:exp(I)}, P),
+                  testing:received(exp, P),
+                  testing:sent(log, {float(I)}, P),
+                  testing:received(log, P) ] ++ Acc
+            end, [], lists:seq(2, 3))
+        ),
+        testing:received('end', P)
     ]), C).

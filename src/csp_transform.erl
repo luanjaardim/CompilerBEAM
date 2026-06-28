@@ -20,7 +20,8 @@ from_csp(FileName, ModName, ToProbe, Debug) ->
     "            manager:recv(PID, ChannelName, ParamNumber)\n"
     "        };\n"
     "~s\n"
-    "        PID ! @start\n"
+    "        PID ! @start;\n"
+    "        PID\n"
     "    }\n"
     "}\n",
     [ModName, S]),
@@ -92,7 +93,7 @@ compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs
                 {send, Name, Params} ->
                     case Externs of
                         #{ Name := {ModName, _}} ->
-                            io_lib:format("Send(@~s, ~s:~s(~s)); ", [Name, ModName, Name, into_tuple(Params, Context)]);
+                            io_lib:format("Send(@~s, {apply(@~s, @~s, ~s)}); ", [Name, ModName, Name, into_list(Params, Context)]);
                         _ -> io_lib:format("Send(@~s, ~s); ", [Name, into_tuple(Params, Context)])
                     end
             end

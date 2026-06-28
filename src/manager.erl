@@ -101,7 +101,7 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                     [] -> MatchChannelNotSynced()
                 end, Context, Debug);
         {relation, First, Second, SyncedChs} ->
-            debug("Adding a relation between (~p, ~p) with ~p", {add_relation, pid_to_list(First), pid_to_list(Second), maps:from_list(SyncedChs)}, [First, Second, SyncedChs], Debug),
+            debug("Adding a relation between (~p, ~p) with ~p", {}, [First, Second, SyncedChs], Debug),
             manager_listen([{First, Second, maps:from_list(SyncedChs)} | Links], PendingMessages, Context, Debug);
         {spawn_proc, Proc, ProcFunction, Args, From} ->
             #{pids := Pids} = Context,
@@ -119,11 +119,20 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                 _ -> #{pids => Pids#{ Proc => [{PID, Args}]}}
             end, manager_listen(Links, PendingMessages, NewContext, Debug);
         start ->
+            lists:foreach(fun({First, Second, SyncedChs}) ->
+                            debug("", {add_relation, pid_to_list(First), pid_to_list(Second), SyncedChs}, [], log)
+                          end, Links),
             debug("Starting all created Procs...", {start}, [], Debug),
             maps:foreach(fun(_, PIDs) ->
                 lists:foreach(fun({PID, Arguments}) ->
                      PID ! {start, Arguments} end, PIDs) end, maps:get(pids, Context)),
-            manager_listen(Links, PendingMessages, Context, Debug)
+            manager_listen(Links, PendingMessages, Context, Debug);
+        kill ->
+            % Killing every spawned procs
+            maps:foreach(fun(_, PIDs) ->
+                lists:foreach(fun({PID, _}) ->
+                     exit(PID, 'end') end, PIDs) end, maps:get(pids, Context)),
+            exit(self())
     end.
 manager_listen(Links, PendingMessages, Debug) -> manager_listen(Links, PendingMessages, create_context(), Debug).
 manager_listen(Links, PendingMessages) -> manager_listen(Links, PendingMessages, create_context(), false).
