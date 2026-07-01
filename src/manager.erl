@@ -2,8 +2,8 @@
 -export([manager_listen/2, manager_listen/3, add_relation/4, spawn_proc/4, send/3, recv/3, debug/4]).
 
 % Links is a list of triples: {Dest, From, Synced Channels}
-% PendingMessages is a map with Key: ChannelName and Value:
-%       {sent, sync or async (to know if the PendingMessage is from a channel that is sync or not), PID From, Tuple of Values} 
+% PendingMessages is a map with Key: {ChannelName, PID From} and Value:
+%       {sent, sync or async (to know if the PendingMessage is from a channel that is sync or not), Tuple of Values} 
 %       or {expect, sync or async, PID From, Arity of Expected Tuple}
 % Context contain all spawned procs and their PID
 manager_listen(Links, PendingMessages, Context, Debug) ->
@@ -11,22 +11,22 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
         {recv, ChannelName, ParamNumber, From} ->
             debug("Received a 'recv' with (~s, ~p) from ~p.", {recv, ChannelName, pid_to_list(From)}, [ChannelName, ParamNumber, From], Debug),
             MatchChannelNotSynced = fun() ->
-                case PendingMessages of
-                % ChannelName is not synched, but there is already a process expecting a value from this channel
-                #{ChannelName := {sent, async, AnyDest, Msg}} ->
-                    debug("~p received with ~s an async Msg(~p) from ~p", {}, [From, ChannelName, Msg, AnyDest], Debug),
-                    From ! {ChannelName, Msg},
-                    maps:remove(ChannelName, PendingMessages);
+                case find_message(ChannelName, sent, async, PendingMessages) of
+                    % ChannelName is not synched, but there is already a process expecting a value from this channel
+                    {true, AnyDest, Msg} ->
+                        debug("~p received with ~s an async Msg(~p) from ~p", {}, [From, ChannelName, Msg, AnyDest], Debug),
+                        From ! {ChannelName, Msg},
+                        maps:remove({ChannelName, AnyDest}, PendingMessages);
 
-                % if it is an event (ParamNumber == 0) and not synched, just ack the receiver and continue
-                _ when ParamNumber == 0 ->
-                    debug("an async event(~s) was received by ~p", {}, [ChannelName, From], Debug),
-                    From ! {ChannelName, {}}, PendingMessages;
+                    % if it is an event (ParamNumber == 0) and not synched, just ack the receiver and continue
+                    false when ParamNumber == 0 ->
+                        debug("an async event(~s) was received by ~p", {}, [ChannelName, From], Debug),
+                        From ! {ChannelName, {}}, PendingMessages;
 
-                % Here we just wait for the value
-                _ ->
-                    debug("~p expects to async receive an Msg of ~p params with ~s", {}, [From, ParamNumber, ChannelName], Debug),
-                    PendingMessages#{ChannelName => {expect, async, From, ParamNumber}}
+                    % Here we just wait for the value
+                    false ->
+                        debug("~p expects to async receive an Msg of ~p params with ~s", {}, [From, ParamNumber, ChannelName], Debug),
+                        PendingMessages#{{ChannelName, From} => {expect, async, ParamNumber}}
                 end
             end,
             manager_listen(Links,
@@ -34,18 +34,18 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                     % TODO: if it is an event it should wait for everyone that has a relation with it to sync
                     Relations = [ _ | _ ] ->
                         debug("~p will try sync with '~s' on relations: ~p.", {}, [From, ChannelName, Relations], Debug),
-                        SearchAnyRelOnPendingMessages = 
+                        SearchAnyRelOnPendingMessages =
                             fun Rec([{Dest, #{ ChannelName := _}} | T], _) ->
                                     case PendingMessages of
                                          % Dest has already sent Msg on PendingMessages
-                                         #{ChannelName := {sent, sync, Dest, Msg}} ->
+                                         #{{ChannelName, Dest} := {sent, sync, Msg}} ->
                                             debug("Sync with ~s between (~p, ~p): ~p", {sync, ChannelName, pid_to_list(From), pid_to_list(Dest)}, [ChannelName, From, Dest, Msg], Debug),
                                             From ! {ChannelName, Msg}, Dest ! {ChannelName, {}},
-                                            maps:remove(ChannelName, PendingMessages);
-                                         #{ChannelName := {expect, sync, Dest, 0}} ->
+                                            maps:remove({ChannelName, Dest}, PendingMessages);
+                                         #{{ChannelName, Dest} := {expect, sync, 0}} ->
                                             debug("Sync with ~s between (~p, ~p): {}", {sync, ChannelName, pid_to_list(From), pid_to_list(Dest)}, [ChannelName, From, Dest], Debug),
                                             From ! {ChannelName, {}}, Dest ! {ChannelName, {}},
-                                            maps:remove(ChannelName, PendingMessages);
+                                            maps:remove({ChannelName, Dest}, PendingMessages);
                                          _ -> Rec(T, sync)
                                     end;
                                 % The Relation does not sync with ChannelName
@@ -53,7 +53,7 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                                 Rec([], sync) ->
                                     % No Pending Relation was found, so we just wait to sync
                                     debug("~p is waiting any of ~p to receive and sync with ~s", {}, [From, Relations, ChannelName], Debug),
-                                    PendingMessages#{ChannelName => {expect, sync, From, ParamNumber}};
+                                    PendingMessages#{{ChannelName, From} => {expect, sync, ParamNumber}};
                                 Rec([], async) ->
                                     debug("but ~s is not a synced channel", {}, [ChannelName], Debug),
                                     MatchChannelNotSynced()
@@ -63,16 +63,16 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
         {send, ChannelName, Msg, From} ->
             debug("Received a 'send' with (~s, ~p) from ~p.", {send, ChannelName, Msg, pid_to_list(From)}, [ChannelName, Msg, From], Debug),
             MatchChannelNotSynced = fun() ->
-                case PendingMessages of
-                % ChannelName is not synched, but there is already a process expecting a value from this channel
-                #{ChannelName := {expect, async, AnyDest, _ParamNumber}} ->
-                    debug("~p is async sending a Msg(~p) with ~s to ~p", {}, [From, Msg, ChannelName, AnyDest], Debug),
-                    From ! {ChannelName, {}}, AnyDest ! {ChannelName, Msg},
-                    maps:remove(ChannelName, PendingMessages);
+                case find_message(ChannelName, expect, async, PendingMessages) of
+                    % ChannelName is not synched, but there is already a process expecting a value from this channel
+                    {true, AnyDest, _ParamNumber} ->
+                        debug("~p is async sending a Msg(~p) with ~s to ~p", {}, [From, Msg, ChannelName, AnyDest], Debug),
+                        From ! {ChannelName, {}}, AnyDest ! {ChannelName, Msg},
+                        maps:remove({ChannelName, AnyDest}, PendingMessages);
 
-                % Here we send the value and continue the execution(ack), as we are not synching
-                _ -> debug("~p is async sending a Msg(~p) with ~s to anyone that wants it", {}, [From, Msg, ChannelName], Debug),
-                    From ! {ChannelName, {}}, PendingMessages#{ChannelName => {sent, async, From, Msg}}
+                    % Here we send the value and continue the execution(ack), as we are not synching
+                    false -> debug("~p is async sending a Msg(~p) with ~s to anyone that wants it", {}, [From, Msg, ChannelName], Debug),
+                        From ! {ChannelName, {}}, PendingMessages#{{ChannelName, From} => {sent, async, Msg}}
                 end
             end,
             manager_listen(Links,
@@ -83,17 +83,17 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                             fun Rec([{Dest, #{ ChannelName := _}} | T], _) ->
                                     case PendingMessages of
                                          % Dest has already sent Msg on PendingMessages
-                                         #{ChannelName := {expect, sync, Dest, _}} ->
+                                         #{{ChannelName, Dest} := {expect, sync, _}} ->
                                             debug("Sync with ~s between (~p, ~p): ~p", {sync, ChannelName, pid_to_list(From), pid_to_list(Dest)}, [ChannelName, From, Dest, Msg], Debug),
                                             From ! {ChannelName, {}}, Dest ! {ChannelName, Msg},
-                                            maps:remove(ChannelName, PendingMessages);
+                                            maps:remove({ChannelName, Dest}, PendingMessages);
                                          _ -> Rec(T, sync)
                                     end;
                                 Rec([{_Dest, _} | T], SyncOrAsync) -> Rec(T, SyncOrAsync);
                                 Rec([], sync) ->
                                     % No Pending Relation was found, so we just wait to sync
                                     debug("~p is waiting any of ~p to send ~p and sync with ~s", {}, [From, Relations, Msg, ChannelName], Debug),
-                                    PendingMessages#{ChannelName => {sent, sync, From, Msg}};
+                                    PendingMessages#{{ChannelName, From} => {sent, sync, Msg}};
                                 Rec([], async) ->
                                     debug("but ~s is not a synced channel", {}, [ChannelName], Debug),
                                     MatchChannelNotSynced()
@@ -136,6 +136,19 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
     end.
 manager_listen(Links, PendingMessages, Debug) -> manager_listen(Links, PendingMessages, create_context(), Debug).
 manager_listen(Links, PendingMessages) -> manager_listen(Links, PendingMessages, create_context(), false).
+
+find_message(ChannelName, RecvOrExpect, AsyncOrSync, PendingMessages) ->
+    Iterate = fun Rec(It) ->
+        case maps:next(It) of
+            {K, V, ItNew} ->
+                case {K, V} of
+                    {{ChannelName, Pid}, {RecvOrExpect, AsyncOrSync, Value}} -> {true, Pid, Value};
+                    _ -> Rec(ItNew)
+                end;
+            none -> false
+        end
+    end,
+    Iterate(maps:iterator(PendingMessages)).
 
 create_context() -> #{pids => #{}}.
 

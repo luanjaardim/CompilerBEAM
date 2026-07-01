@@ -19,3 +19,10 @@ Z = w -> x -> Z
 
 SYN_XZ  = X [| {|w, x, y, z|} |] Z
 SYN_XZY = SYN_XZ [| {|w, x, y, z|} |] Y
+
+W = w -> x -> STOP
+	[]
+    y -> z -> STOP
+SYN_WX = X [| {|w, x, y|} |] W
+SYN_WY = Y [| {|w, y, z|} |] W
+MAIN = SYN_WX ||| SYN_WY

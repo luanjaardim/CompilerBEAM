@@ -1,5 +1,5 @@
 -module(testing).
--export([get_log/2, spawn_procs/2, assert_relation/3, assert_start/0, times/2, loop/1, all_of/1, any_of/1, before/2,
+-export([get_log/2, spawn_procs/2, assert_relation/3, discart_empty_relations/0, assert_start/0, times/2, loop/1, all_of/1, any_of/1, before/2,
         synched/3, received/2, sent/3, expect/2, show_state/0]).
 
 get_log(FileName, ToProbe) ->
@@ -52,20 +52,32 @@ before(L, P) ->
 
 spawn_procs(ProcsArgs, State) ->
     {Spawns, Rest} = lists:split(length(ProcsArgs), State),
-    {lists:map(fun({ProcName, Args})->
-        FindProc = fun Rec(P, As, [{spawn, P, As, PID} | _]) -> PID;
+    {element(1, lists:mapfoldl(fun({ProcName, Args}, ToSearch)->
+        FindProc = fun Rec(P, As, [E = {spawn, P, As, PID} | _]) -> {PID, lists:delete(E, ToSearch)};
                        Rec(P, As, [{spawn, _, _, _} | Tl]) -> Rec(P, As, Tl);
                        Rec(_, _, []) -> throw(not_found) end,
-        FindProc(ProcName, Args, Spawns)
-    end, ProcsArgs), Rest}.
+        FindProc(ProcName, Args, ToSearch)
+    end, Spawns, ProcsArgs)), Rest}.
 
 assert_relation(P1, P2, Chs) ->
     fun(S) ->
-        case hd(S) of
-        {add_relation, P1, P2, Chs} -> tl(S);
-        {add_relation, P2, P1, Chs} -> tl(S);
+        % Find the relation that is expected
+        {L, Rest} = lists:splitwith(
+            fun({add_relation, P1_, P2_, Chs_}) when P1 =/= P1_; P2 =/= P2_; Chs =/= Chs_ -> true;
+            (_) -> false
+        end, S),
+        case hd(Rest) of
+        {add_relation, P1, P2, Chs} -> L ++ tl(Rest);
+        {add_relation, P2, P1, Chs} -> L ++ tl(Rest);
         _ -> false
         end
+    end.
+
+discart_empty_relations() ->
+    fun(S) ->
+        lists:dropwhile(
+          fun({add_relation, _, _, #{}}) -> true;
+          (_) -> false end, S)
     end.
 
 assert_start() -> fun(S) -> {start} = hd(S), tl(S) end.

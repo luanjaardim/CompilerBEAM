@@ -1,5 +1,5 @@
 -module(test_csp).
--export([test_all/0, sync_qp/0, sync_rp/0, sync_xz/0, sync_xzy/0, basic_p/0, basic_q/0, procs_q/0, procs_s/0, communication_pq/0, external_p/0]).
+-export([test_all/0, sync_qp/0, sync_rp/0, sync_xz/0, sync_xzy/0, sync_main/0, basic_p/0, basic_q/0, procs_q/0, procs_s/0, communication_pq/0, external_p/0]).
 
 test_all() ->
     lists:foreach(
@@ -119,6 +119,34 @@ sync_xzy() ->
             testing:received(w, Z),
             testing:received(y, Z)
         ]))
+    ]), C).
+
+sync_main() ->
+    Logs = testing:get_log("./test/sync.csp", 'MAIN'),
+    {[X, Y, WX, WY], C} = testing:spawn_procs([{'X', none}, {'Y', none}, {'W', none}, {'W', none}], Logs),
+    testing:expect(testing:all_of([
+        testing:assert_relation(X, WX, #{w => 0,x => 0,y => 0}),
+        testing:assert_relation(Y, WY, #{w => 0,y => 0,z => 0}),
+        testing:discart_empty_relations(),
+        testing:assert_start(),
+        testing:before([
+            testing:received(y, Y),
+            testing:received(y, WY)
+        ], testing:synched(y, Y, WY)),
+        testing:before([
+            testing:received(z, Y),
+            testing:received(z, WY)
+        ], testing:synched(z, Y, WY)),
+        testing:before([
+            testing:received(w, X),
+            testing:received(w, WX)
+        ], testing:synched(w, X, WX)),
+        testing:before([
+            testing:received(x, X),
+            testing:received(x, WX)
+        ], testing:synched(x, X, WX)),
+        testing:times(2,
+            testing:any_of([testing:received(w, WY),testing:received(y, WX)]))
     ]), C).
 
 basic_p() ->
