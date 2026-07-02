@@ -120,7 +120,9 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                 #{Proc := L} ->  #{pids => Pids#{ Proc => [{PID, Args} | L]}};
                 _ -> #{pids => Pids#{ Proc => [{PID, Args}]}}
             end, manager_listen(Links, PendingMessages, NewContext, Debug);
-        {stop, PID} -> debug("Process ~s stopped.", {stop, pid_to_list(PID)}, [PID], Debug);
+        {stop, PID} -> 
+            debug("Process ~s stopped.", {stop, pid_to_list(PID)}, [PID], Debug),
+            manager_listen(Links, PendingMessages, Context, Debug);
         start ->
             lists:foreach(fun({First, Second, SyncedChs}) ->
                             debug("", {add_relation, pid_to_list(First), pid_to_list(Second), SyncedChs}, [], log)

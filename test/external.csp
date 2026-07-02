@@ -1,9 +1,7 @@
 nametype Number = {0..10}
-
-channel beg, end
 --# math
 channel log, exp: Number
 
-P(1) = end -> STOP
-P(X) = beg -> exp!X -> exp?Y -> log!Y -> log?Z -> P(X - 1)
-MAIN = beg -> P(3)
+P(1) = STOP
+P(X) = exp!X -> exp?Y -> log!Y -> log?Z -> P(X - 1)
+MAIN = P(10)

@@ -1,0 +1,26 @@
+nametype Number = {0..10}
+datatype Values = ONE | TWO | THREE
+
+channel a, b, x, y, z
+channel c: Values
+channel d: Number.Values
+
+P = ((a -> P)
+      []
+    (x -> (y -> STOP [] z -> STOP)))
+      []
+    (b -> P)
+
+Q = c!ONE -> c?X -> d!1!TWO -> d?N?V -> STOP
+R = Q
+
+INC =
+  c?ONE -> c!TWO -> INC
+    []
+  c?TWO -> c!THREE -> INC
+    []
+  c?X -> STOP
+
+S(THREE) = STOP
+S(X) = c!X -> c?Y -> S(Y)
+MAIN = S(ONE) ||| INC
