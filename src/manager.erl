@@ -1,5 +1,5 @@
 -module(manager).
--export([manager_listen/2, manager_listen/3, add_relation/4, spawn_proc/4, send/3, recv/3, debug/4]).
+-export([manager_listen/2, manager_listen/3, add_relation/4, spawn_proc/4, send/3, recv/3, emit_stop/1, debug/4]).
 
 % Links is a list of triples: {Dest, From, Synced Channels}
 % PendingMessages is a map with Key: {ChannelName, PID From} and Value:
@@ -120,6 +120,7 @@ manager_listen(Links, PendingMessages, Context, Debug) ->
                 #{Proc := L} ->  #{pids => Pids#{ Proc => [{PID, Args} | L]}};
                 _ -> #{pids => Pids#{ Proc => [{PID, Args}]}}
             end, manager_listen(Links, PendingMessages, NewContext, Debug);
+        {stop, PID} -> debug("Process ~s stopped.", {stop, pid_to_list(PID)}, [PID], Debug);
         start ->
             lists:foreach(fun({First, Second, SyncedChs}) ->
                             debug("", {add_relation, pid_to_list(First), pid_to_list(Second), SyncedChs}, [], log)
@@ -171,6 +172,8 @@ recv(ManPID, ChannelName, 0) ->
 recv(ManPID, ChannelName, ParamNumber) ->
     ManPID ! {recv, ChannelName, ParamNumber, self()},
     receive { ChannelName, Data } -> Data end.
+
+emit_stop(ManPID) -> ManPID ! {stop, self()}, stop.
 
 debug(S, _, Es, true) -> io:format(S++"\n", Es);
 debug(_, {}, _, log) -> ok;

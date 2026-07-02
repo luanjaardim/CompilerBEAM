@@ -61,7 +61,7 @@ compile({choices, Branches}, I, Context = { _, #{ channels := Channels, externs 
          fun(Var) ->
             case treat_event(Var) of
                 {recv, Name, _} -> io_lib:format("{@recv, @~s, ~p, self()}", [Name, maps:get(Name, Channels)]);
-                {send, Name, Params} -> 
+                {send, Name, Params} ->
                     case Externs of
                         #{Name := {ModName, _}} ->
                              io_lib:format("{@send, @~s, {apply(@~s, @~s, ~s)}, self()}", [Name, ModName, Name, into_list(Params, Context)]);
@@ -74,7 +74,7 @@ compile({choices, Branches}, I, Context = { _, #{ channels := Channels, externs 
             fun({Sep, {events, B}}) ->
                 S = case compile({events, tl(B)}, I+1, Context) of
                     {"", _} -> " @empty ";
-                    {Body, _} -> Body
+                    {Body, _} -> indent(I+1, Body)
                 end,
                 indent(I, Sep ++ case treat_event(hd(B)) of
                     {send, Name, _} ->
@@ -85,14 +85,14 @@ compile({choices, Branches}, I, Context = { _, #{ channels := Channels, externs 
             end, lists:zip(Separators, Branches)),
     { io_lib:format("PID ! [~s];\n", [InitialReq]) ++ ReceiveBranches, Context };
 
-compile({events, Events}, I, Context = {_, #{channels := Channels, procs := Procs, externs := Externs}}) when is_list(Events) ->
-    { lists:join("\n", lists:map(fun(Event) ->
-            indent(I, case treat_event(Event) of
+compile({events, Events}, I, Context = {_, #{channels := Channels, procs := Procs, externs := Externs, atoms := Atoms}}) when is_list(Events) ->
+    { lists:join("\n"++indent(I, ""), lists:map(fun(Event) ->
+            case treat_event(Event) of
                 Choices = {choices, _} ->
-                    {S, _} = compile(Choices, I+1, Context), S;
+                    {S, _} = compile(Choices, I, Context), S;
                 {proc_call, Name, ProcArgs} ->
                     io_lib:format("~s~s;", [Name, convert_proc_args_to_str(ProcArgs, Context)]);
-                {recv, 'STOP', _} -> "@stop";
+                {recv, 'STOP', _} -> "manager:emit_stop(PID);";
                 {recv, Name, Vars} ->
                     case {Channels, Procs, Externs} of
                         {_, #{ Name := _}, _} -> io_lib:format("~s();", [Name]);
@@ -108,7 +108,7 @@ compile({events, Events}, I, Context = {_, #{channels := Channels, procs := Proc
                             io_lib:format("Send(@~s, {apply(@~s, @~s, ~s)});", [Name, ModName, Name, into_list(Params, Context)]);
                         _ -> io_lib:format("Send(@~s, ~s);", [Name, into_tuple(Params, Context)])
                     end
-            end)
+            end
         end, Events)), Context };
 
 compile({sync, {_, _, Name}, {sync_channel, P1, P2, Chs}}, _I, {S, Info = #{relations := Relations}}) ->

@@ -84,7 +84,7 @@ proc_def_events -> expr '->' proc_def_events: ['$1' | '$3'].
 proc_def_events -> expr '->' '(' proc_def_choices ')': ['$1', {choices, '$4'}].
 proc_def_choices -> '(' proc_def_choices ')': '$2'.
 proc_def_choices -> proc_def_events: [{events, '$1'}].
-proc_def_choices -> proc_def_events '[]' proc_def_choices: [{events, '$1'} | '$3'].
+proc_def_choices -> proc_def_choices '[]' proc_def_choices: '$1' ++ '$3'.
 proc_def -> proc asgn proc_def_choices: {proc, '$1', {body, {choices, '$3'}}}.
 
 channel_def_aux -> var : ['$1'].
