@@ -8,6 +8,8 @@
 % Context contain all spawned procs and their PID
 manager_listen(Links, PendingMessages, Context, Debug) ->
     receive
+        Elems when is_list(Elems) ->
+            lists:foreach(fun(E) -> self() ! E end, Elems), manager_listen(Links, PendingMessages, Context, Debug);
         {recv, ChannelName, ParamNumber, From} ->
             debug("Received a 'recv' with (~s, ~p) from ~p.", {recv, ChannelName, pid_to_list(From)}, [ChannelName, ParamNumber, From], Debug),
             MatchChannelNotSynced = fun() ->

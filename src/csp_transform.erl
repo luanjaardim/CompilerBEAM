@@ -25,7 +25,7 @@ from_csp(FileName, ModName, ToProbe, Debug) ->
     "    }\n"
     "}\n",
     [ModName, S]),
-    case Debug of true -> io:format("S: ~s, Info: ~p", [End, Info]); _ -> ok end,
+    case Debug of true -> io:format("S: ~s, Info: ~p\n", [End, Info]); _ -> ok end,
     file:write_file("generated.dulang", list_to_binary(End)),
     compiler:compile("generated.dulang").
 
@@ -36,7 +36,7 @@ compile({channel, Number, Channels}, _I, {S, Info = #{ channels := DefChannels }
              Rec(_, []) -> [] end,
     {S, Info#{ channels => maps:merge(maps:from_list(Fn(Number, Channels)), DefChannels) }};
 
-compile({proc, Val, Choices}, I, {S, Info = #{ procs := Procs }}) ->
+compile({proc, Val, {body, ProcBody}}, I, {S, Info = #{ procs := Procs }}) ->
     % TODO: have a proc that can receive parameters
     {ProcName, ProcArgs} = case get_val(Val) of
                        {proc_call, Name, Args} -> {Name, Args};
@@ -44,60 +44,72 @@ compile({proc, Val, Choices}, I, {S, Info = #{ procs := Procs }}) ->
                    end,
     {S_, Begin} = case Procs of #{ProcName := _} -> {lists:droplast(lists:droplast(S))++"\n", "|"}; _ -> {S, io_lib:format("~s =|", [ProcName])} end,
     Info_ = Info#{ procs => Procs#{ProcName => 0} },
-    {Body, _} = compile(Choices, I+1, {"", Info_}),
+    {Body, _} = compile(ProcBody, I+1, {"", Info_}),
     {
         S_ ++
         indent(I, io_lib:format("~s ~s {\n", [Begin, convert_proc_args_to_str(ProcArgs, {"", Info_})])) ++
-        Body ++
+        indent(I+1, Body) ++
         indent(I, "};\n"),
         Info_
     };
 
-compile({choices, Branches}, I, Context = { _, #{ channels := Channels } }) ->
-    InitialReq = lists:join("; ",
+compile({choices, [Events = {events, _}]}, I, C) ->
+    {S, C_} = compile(Events, I, C), {S++"\n", C_};
+compile({choices, Branches}, I, Context = { _, #{ channels := Channels, externs := Externs } }) ->
+    InitialReq = lists:join(", ",
        lists:map(
          fun(Var) ->
             case treat_event(Var) of
-                {recv, Name, _} -> io_lib:format("PID ! {@recv, @~s, ~p, self()}", [Name, maps:get(Name, Channels)]);
-                {send, Name, Params} -> io_lib:format("PID ! {@send, @~s, ~s, self()}", [Name, into_tuple(Params, Context)])
+                {recv, Name, _} -> io_lib:format("{@recv, @~s, ~p, self()}", [Name, maps:get(Name, Channels)]);
+                {send, Name, Params} -> 
+                    case Externs of
+                        #{Name := {ModName, _}} ->
+                             io_lib:format("{@send, @~s, {apply(@~s, @~s, ~s)}, self()}", [Name, ModName, Name, into_list(Params, Context)]);
+                        _ -> io_lib:format("{@send, @~s, ~s, self()}", [Name, into_tuple(Params, Context)])
+                    end
             end
-       end, lists:map(fun(Branch) -> hd(Branch) end, Branches))),
+       end, lists:map(fun({events, Branch}) -> hd(Branch) end, Branches))),
     Separators = ["?"] ++ lists:duplicate(length(Branches)-1, "|"),
     ReceiveBranches = lists:map(
-            fun({Sep, B}) ->
-                {S, _} = compile(tl(B), I, Context),
+            fun({Sep, {events, B}}) ->
+                S = case compile({events, tl(B)}, I+1, Context) of
+                    {"", _} -> " @empty ";
+                    {Body, _} -> Body
+                end,
                 indent(I, Sep ++ case treat_event(hd(B)) of
                     {send, Name, _} ->
-                        io_lib:format("({@~s, {}}) { ~s }", [Name, S]);
+                        io_lib:format("({@~s, {}}) {\n~s\n", [Name, S]) ++ indent(I, "}");
                     {recv, Name, Params} ->
-                        io_lib:format("({@~s, ~s}) { ~s }", [Name, into_tuple(Params, Context), S])
+                        io_lib:format("({@~s, ~s}) {\n~s\n", [Name, into_tuple(Params, Context), S]) ++ indent(I, "}")
                 end) ++ "\n"
             end, lists:zip(Separators, Branches)),
-    { indent(I, InitialReq ++ ";\n") ++ ReceiveBranches, Context };
+    { io_lib:format("PID ! [~s];\n", [InitialReq]) ++ ReceiveBranches, Context };
 
-compile(Events, _, Context = {_, #{channels := Channels, procs := Procs, externs := Externs}}) when is_list(Events) ->
-    { lists:map(fun(Event) ->
-            case treat_event(Event) of
+compile({events, Events}, I, Context = {_, #{channels := Channels, procs := Procs, externs := Externs}}) when is_list(Events) ->
+    { lists:join("\n", lists:map(fun(Event) ->
+            indent(I, case treat_event(Event) of
+                Choices = {choices, _} ->
+                    {S, _} = compile(Choices, I+1, Context), S;
                 {proc_call, Name, ProcArgs} ->
-                    io_lib:format("~s~s; ", [Name, convert_proc_args_to_str(ProcArgs, Context)]);
+                    io_lib:format("~s~s;", [Name, convert_proc_args_to_str(ProcArgs, Context)]);
                 {recv, 'STOP', _} -> "@stop";
                 {recv, Name, Vars} ->
                     case {Channels, Procs, Externs} of
-                        {_, #{ Name := _}, _} -> io_lib:format("~s(); ", [Name]);
+                        {_, #{ Name := _}, _} -> io_lib:format("~s();", [Name]);
                         {#{ Name := ParamsNumber }, _, _} ->
-                            io_lib:format("~s = Recv(@~s, ~p); ", [into_tuple(Vars, Context), Name, ParamsNumber]);
+                            io_lib:format("~s = Recv(@~s, ~p);", [into_tuple(Vars, Context), Name, ParamsNumber]);
                         {_, _, #{ Name := {_, ParamsNumber} }} ->
-                            io_lib:format("~s = Recv(@~s, ~p); ", [into_tuple(Vars, Context), Name, ParamsNumber]);
+                            io_lib:format("~s = Recv(@~s, ~p);", [into_tuple(Vars, Context), Name, ParamsNumber]);
                         _ -> throw(io_lib:format("Variable not defined: ~s", [Name]))
                     end;
                 {send, Name, Params} ->
                     case Externs of
                         #{ Name := {ModName, _}} ->
-                            io_lib:format("Send(@~s, {apply(@~s, @~s, ~s)}); ", [Name, ModName, Name, into_list(Params, Context)]);
-                        _ -> io_lib:format("Send(@~s, ~s); ", [Name, into_tuple(Params, Context)])
+                            io_lib:format("Send(@~s, {apply(@~s, @~s, ~s)});", [Name, ModName, Name, into_list(Params, Context)]);
+                        _ -> io_lib:format("Send(@~s, ~s);", [Name, into_tuple(Params, Context)])
                     end
-            end
-        end, Events), Context };
+            end)
+        end, Events)), Context };
 
 compile({sync, {_, _, Name}, {sync_channel, P1, P2, Chs}}, _I, {S, Info = #{relations := Relations}}) ->
     {S, Info#{ relations => [{Name, {[get_val(P1), get_val(P2)], Chs}}| Relations]}};
@@ -110,7 +122,7 @@ compile({datatype, Datatypes}, _, {S, Info = #{ atoms := Atoms }}) ->
 
 compile({ignore}, _, C) -> C;
 
-compile({extern, {_, _, ModName}, ParamNumber, Vars}, _I, {S, Info = #{ externs := Externs }}) ->
+compile({extern, {_, _, ModName}, {channel, ParamNumber, Vars}}, _I, {S, Info = #{ externs := Externs }}) ->
     {S, Info#{ externs => maps:merge(Externs, maps:from_list(lists:map(fun({'var', _, Name}) -> {Name, {ModName, ParamNumber}} end, Vars)))}};
 
 % TODO: receive args for the ToProbe process
@@ -131,7 +143,7 @@ compile({spawn_and_start_procs, ToProbe}, I_, C={S, Info = #{ procs := Procs, re
                   [] -> indent(I, io_lib:format("manager:spawn_proc(PID, @~s, ~s, @none)", [Name, Name]));
                   _ -> throw(not_implemented)
                 end;
-            _ -> throw("Could not start the Process")
+            _ -> throw(io_lib:format("Could not start the Process ~s!", [Name]))
         end
     end, { S ++ SpawnProc(ToProbe, [], I_) ++ ";", Info}.
 
@@ -164,7 +176,9 @@ treat_event({op, {'!', _}, {var, _, Name}, Rest}) ->
 treat_event({op, {'?', _}, {var, _, Name}, Rest}) ->
     {recv, Name, treat_event_aux(Rest)};
 treat_event(Val = {proc_call, {var, _, _Name}, _Args}) ->
-    get_val(Val).
+    get_val(Val);
+treat_event(Val = {choices, _}) ->
+    Val.
 
 treat_event_aux({op, _, Val, Rest}) -> [get_val(Val) | treat_event_aux(Rest)];
 treat_event_aux(Val) -> [get_val(Val)].
