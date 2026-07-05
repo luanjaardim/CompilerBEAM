@@ -2,13 +2,21 @@
 -export([test_all/0, sync_qp/0, sync_rp/0, sync_xz/0, sync_xzy/0, sync_main/0, basic_p/0, basic_q/0, basic_synt_p/0, basic_synt_r/0, basic_synt_main/0, procs_q/0, procs_s/0, communication_pq/0, external_main/0]).
 
 test_all() ->
-    lists:foreach(
-      fun({Name, _})
-      when Name /= module_info, Name /= test_all ->
-          apply(test_csp, Name, []);
-      (_) -> false
+    TestFunctions = lists:filter(
+        fun({Name, _}) when Name /= module_info, Name /= test_all -> true; (_) -> false end, module_info(exports)),
+    {PassedAmount, FailedTests} = lists:foldl(
+      fun({Name, _}, {Acc, FailedList}) ->
+        try apply(test_csp, Name, []) of ok -> {1 + Acc, FailedList}
+        catch test_fail -> {Acc, [io_lib:format("\n\t~s", [Name]) | FailedList]}
+        end
       end,
-    module_info(exports)).
+    {0, []}, TestFunctions),
+    io:format("\nPassed ~p of ~p tests.\n", [PassedAmount, length(TestFunctions)]),
+    case FailedTests of
+      [] -> ok;
+      _ -> io:format("Failed:"), lists:foreach(fun(T) -> io:format("~s", [T]) end, FailedTests)
+    end.
+
 
 sync_qp() ->
     Logs = testing:get_log("./test/sync.csp", 'SYN_QP'),
@@ -163,7 +171,7 @@ sync_main() ->
     ]), C).
 
 basic_p() ->
-    Logs = testing:get_log("./test/basic.csp", 'P'),
+    Logs = testing:get_log("./test/basic.csp", 'P', 500),
     {[P], C} = testing:spawn_procs([{'P', none}], Logs),
     testing:expect(testing:all_of([
       testing:assert_start(),
@@ -186,7 +194,7 @@ basic_p() ->
     ]), C).
 
 basic_q() ->
-    Logs = testing:get_log("./test/basic.csp", 'Q'),
+    Logs = testing:get_log("./test/basic.csp", 'Q', 500),
     {[Q], C} = testing:spawn_procs([{'Q', none}], Logs),
     testing:expect(testing:all_of([
       testing:assert_start(),

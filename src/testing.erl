@@ -1,8 +1,8 @@
 -module(testing).
--export([get_log/2, spawn_procs/2, assert_relation/3, discart_empty_relations/0, assert_start/0, assert_stop/1, times/2, loop/1, all_of/1, any_of/1, before/2, sequential/1, contains/1,
+-export([get_log/2, get_log/3, spawn_procs/2, assert_relation/3, discart_empty_relations/0, assert_start/0, assert_stop/1, times/2, loop/1, all_of/1, any_of/1, before/2, sequential/1, contains/1,
         synched/3, received/2, sent/3, expect/2, show_state/0]).
 
-get_log(FileName, ToProbe) ->
+get_log(FileName, ToProbe, Time) ->
     code:purge(test),
     file:delete(".log"),
     csp_transform:from_csp(FileName, test, ToProbe, log),
@@ -10,9 +10,11 @@ get_log(FileName, ToProbe) ->
     MAN_PID = test:main(), % Execute the compiled CSP file
     % A predefined time before read the log file
     io:format("Running ~s from ~s...\n", [ToProbe, FileName]),
-    timer:sleep(1000),
+    timer:sleep(Time),
     MAN_PID ! kill, % Cleaning remaining procs
     {ok, Logs} = file:consult(".log"), Logs.
+
+get_log(FileName, ToProbe) -> get_log(FileName, ToProbe, 50).
 
 all_of(L) -> fun(S) -> lists:foldl(fun (_, false)-> false; (F, S_)-> F(S_) end, S, L) end.
 any_of(L) ->
@@ -108,4 +110,4 @@ synched(ChName, P1, P2) -> fun(S) ->
 
 show_state() -> fun(S) -> utils:print(S), S end.
 
-expect(F, S) -> case F(S) of [] -> utils:print(ok); _ -> throw(test_fail) end.
+expect(F, S) -> case F(S) of [] -> utils:print(ok), ok; _ -> throw(test_fail) end.
