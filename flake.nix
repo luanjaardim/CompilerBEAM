@@ -35,7 +35,7 @@
             ${fdrEnv}/bin/${fdrEnv.name} -c '$ROOT/fdr/bin/fdr4'
           '';
           runRefines = pkgs.writeShellScriptBin "refines" ''
-            ${fdrEnv}/bin/${fdrEnv.name} -c '$ROOT/fdr/bin/refines'
+            ${fdrEnv}/bin/${fdrEnv.name} -c "$ROOT/fdr/bin/refines $@"
           '';
         in
         {
@@ -55,9 +55,9 @@
                 ];
                 shellHook = ''
                     # Get the root directory to always refer correctly to the FDR4 binaries
-                    export ROOT=$(pwd)
+                    export ROOT=$(git rev-parse --show-toplevel)
                     # Extract fdr application if the directory does not exists
-                    [ -d fdr/ ] || tar -xzf $ROOT/fdr-3814-linux-x86_64.tar.gz
+                    [ -d $ROOT/fdr/ ] || tar -xzf $ROOT/fdr-3814-linux-x86_64.tar.gz
                 '';
               };
         }
