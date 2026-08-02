@@ -1,3 +1,8 @@
+## Cloning the Repository
+
+### This project uses the [libcspm github repo](https://github.com/tomgr/libcspm) as a submodule, use the following command to clone it
+- Run: `git clone -b dev --recursive https://github.com/luanjaardim/CompilerBEAM.git`
+
 ## Running the development shell
 
 ### This project uses Nix to manage all the needed dependecies with a flake based script.

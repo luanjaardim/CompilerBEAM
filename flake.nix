@@ -1,7 +1,7 @@
 {
   description = "Dulang nix flake with Erlang, Haskell and FDR4 support";
 
-  inputs.nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0"; # stable Nixpkgs
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05"; # stable Nixpkgs
 
   outputs =
     { self, ... }@inputs:
