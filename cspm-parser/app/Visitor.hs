@@ -10,16 +10,19 @@ import qualified Data.ByteString.Char8 as B
 import CSPM.Syntax.Literals (Literal)
 
 type Id = UnRenamedName
-data Definitions = Chan [B.ByteString] Int | Proc String | Func String | Assr String | E Expression | Pass
+data Definitions = Chan [B.ByteString] Int | Proc Pattern Expression | Func B.ByteString [Definitions] | Clause [[Pattern]] Expression | Assr String
     deriving (Show)
-data Expression = DotOperator [Expression] | L Literal | Generic String
+data Expression = Paralel Expression Expression | DotOperator [Expression] | L Literal | V B.ByteString | Seq [Expression]
+                  | Event Expression [Expression] | In Pattern | Out Expression | Generic String
+    deriving (Show)
+data Pattern = PatL Literal | PatV B.ByteString
     deriving (Show)
 
-visitFile :: PCSPMFile -> IO [Definitions]
-visitFile (An { inner = CSPMFile decls }) =
+visitFile :: Monad m => PCSPMFile -> m [Definitions]
+visitFile An { inner = CSPMFile decls } =
     mapM (visitDecl . unAnnotate) decls
 
-visitDecl :: Decl Id -> IO Definitions
+visitDecl :: Monad m => Decl Id -> m Definitions
 
 visitDecl (Channel names mExp mType) =
     visitChannel names mExp mType
@@ -34,38 +37,48 @@ visitDecl (FunBind fun expr mType) =
     visitFunBind fun (map unAnnotate expr) mType
 
 visitDecl a =
-    notImplemented a
+    notImplemented "visitDecl" a
 
-visitAssertion :: AnAssertion Id -> IO Definitions
-visitAssertion (An { inner = PropertyCheck
+visitAssertion :: Monad m => AnAssertion Id -> m Definitions
+visitAssertion An { inner = PropertyCheck
     { propertyCheckProcess = proc
     , propertyCheckProperty = prop
     , propertyCheckModel = model
     , propertyCheckModelOptions = opts
-    } }) = do
+    } } = do
     -- proc' <- visitExp proc
     return $ Assr "test"
 
-visitPatBind :: Pat Id
+visitPatBind :: Monad m
+             => Pat Id
              -> Exp Id
              -> Maybe (AnSTypeScheme Id)
-             -> IO Definitions
+             -> m Definitions
 visitPatBind pat expr scheme = do
-    -- pat' <- visitPat pat
-    -- expr' <- visitExp expr
-    return $ Proc "test2"
+    pat' <- visitPattern pat
+    expr' <- visitExp expr
+    return $ Proc pat' expr'
 
-visitFunBind :: Id
+visitFunBind :: Monad m
+             => Id
              -> [Match Id]
              -> Maybe (AnSTypeScheme Id)
-             -> IO Definitions
+             -> m Definitions
 visitFunBind fun matches scheme = do
-    return $ Func "sla"
+    clauses <- mapM visitClause matches
+    return $ Func (extractName fun) clauses
 
-visitChannel :: [Id]
+visitClause :: Monad m => Match Id -> m Definitions
+visitClause Match {matchPatterns=pats, matchRightHandSide=expr} = do
+    pats' <- mapM (\x -> mapM (visitPattern . unAnnotate) x) pats
+    expr' <- visitExpUnAnnotate expr
+    return $ Clause pats' expr'
+
+visitChannel :: Monad m
+    => [Id]
     -> Maybe (AnExp Id)
     -> Maybe (AnSTypeScheme Id)
-    -> IO Definitions
+    -> m Definitions
 visitChannel ids Nothing _ = return $ Chan (map extractName ids) 0
 visitChannel ids (Just expr) _ = do
     expr' <- visitExpUnAnnotate expr
@@ -77,7 +90,20 @@ visitExpUnAnnotate :: Monad m => AnExp Id -> m Expression
 visitExpUnAnnotate = visitExp . unAnnotate
 
 extractName (UnQual (OccName name)) = name
-extractName name = notImplemented name
+extractName name = notImplemented "extractName" name
+
+fieldIntoExpr :: Monad m => Field Id -> m Expression
+fieldIntoExpr (Input pat expr) = do
+    pat' <- visitPattern (unAnnotate pat)
+    return $ In pat'
+fieldIntoExpr (Output expr) = do
+    expr' <- visitExpUnAnnotate expr
+    return $ Out expr'
+visitPattern :: Monad m => Pat Id -> m Pattern
+visitPattern (PLit l) = return $ PatL l
+-- visitPattern PLit l = PatL (extractName l)
+visitPattern PVar {pVarIdentity=v} = return $ PatV (extractName v)
+visitPattern x = notImplemented "visitPattern" x
 
 visitExp :: Monad m => Exp Id -> m Expression
 visitExp DotApp {dotAppLeftArgument=lhs, dotAppRighArgument=rhs} = do
@@ -88,6 +114,19 @@ visitExp DotApp {dotAppLeftArgument=lhs, dotAppRighArgument=rhs} = do
         res -> DotOperator [lhs', res]
 visitExp Lit {litLiteral=l} = do
     return $ Visitor.L l
+visitExp Var {varIdentity=v} = do
+    return $ Visitor.V (extractName v)
+visitExp Prefix {prefixChannel=pC, prefixFields=pF, prefixProcess=pP} = do
+    pC' <- visitExpUnAnnotate pC
+    pF' <- mapM (fieldIntoExpr . unAnnotate) pF
+    pP' <- visitExpUnAnnotate pP
+    return $ case pP' of
+        Seq l -> Seq ((Event pC' pF') : l)
+        res -> Seq [Event pC' pF', Event pP' []]
+visitExp Interleave {interleaveLeftProcess=l, interleaveRightProcess=r} = do
+    l' <- visitExpUnAnnotate l
+    r' <- visitExpUnAnnotate r
+    return $ Generic "interleave"
 visitExp Set {setItems=set} = do
     set' <- mapM visitExpUnAnnotate set
     return $ Generic "set"
@@ -105,8 +144,8 @@ visitExp Concat {concatLeftList=lhs, concatRightList=rhs} = do
     rhs' <- visitExp (unAnnotate rhs)
     return $ Generic "concat"
 
-visitExp a = notImplemented a
+visitExp a = notImplemented "visitExp" a
 
-notImplemented x =
+notImplemented from x =
     let s = pShow x in
-    error ("\nNot implemented:\n" ++ TL.unpack s)
+    error (from ++ "\nNot implemented:\n" ++ TL.unpack s)
