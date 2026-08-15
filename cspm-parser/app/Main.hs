@@ -3,17 +3,25 @@ import qualified CSPM.CommandLineOptions as CSPM
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
 import System.Environment (getArgs)
+import Visitor (visitFile)
+import qualified Data.Text.Lazy as TL
+
+parseAST :: String -> IO PCSPMFile
+parseAST fileName = do
+    session <- newCSPMSession defaultEvaluatorOptions
+    (ast, _) <- unCSPM session $ do
+        CSPM.setOptions CSPM.defaultOptions
+
+        parsed <- parseFile fileName
+        renamed <- CSPM.renameFile parsed
+        typeCheckFile renamed
+
+        return parsed
+    return ast
 
 main = do
     files <- getArgs
-    session <- newCSPMSession defaultEvaluatorOptions
-
-    unCSPM session $ do
-        CSPM.setOptions CSPM.defaultOptions
-        parsed <- parseFile $ head files
-        liftIO $ pPrint parsed
-        renamed <- CSPM.renameFile parsed
-        typed <- typeCheckFile renamed
-
-        liftIO $ putStrLn "Successfully parsed and typechecked."
-
+    ast <- parseAST $ head files
+    -- pPrint ast
+    code <- visitFile ast
+    pPrint code
