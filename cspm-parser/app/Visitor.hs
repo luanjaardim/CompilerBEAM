@@ -1,4 +1,4 @@
-module Visitor (visitFile) where
+module Visitor (visitFile, Id, Definitions(..), Expression(..), Pattern(..)) where
 
 import CSPM
 import CSPM.Syntax.AST
@@ -12,7 +12,7 @@ import CSPM.Syntax.Literals (Literal)
 type Id = UnRenamedName
 data Definitions = Chan [B.ByteString] Int | Proc Pattern Expression | Func B.ByteString [Definitions] | Clause [[Pattern]] Expression | Assr String
     deriving (Show)
-data Expression = Paralel Expression Expression | DotOperator [Expression] | L Literal | V B.ByteString | Seq [Expression]
+data Expression = Paralel Expression Expression | DotOperator [Expression] | L Literal | V B.ByteString | Seq [Expression] | ExtCh [Expression]
                   | Event Expression [Expression] | In Pattern | Out Expression | Generic String
     deriving (Show)
 data Pattern = PatL Literal | PatV B.ByteString
@@ -123,6 +123,13 @@ visitExp Prefix {prefixChannel=pC, prefixFields=pF, prefixProcess=pP} = do
     return $ case pP' of
         Seq l -> Seq ((Event pC' pF') : l)
         res -> Seq [Event pC' pF', Event pP' []]
+visitExp ExternalChoice {extChoiceLeftProcess=l, extChoiceRightProcess=r} = do
+    l' <- visitExpUnAnnotate l
+    r' <- visitExpUnAnnotate r
+    return $ case l' of
+        ExtCh choices -> ExtCh (choices ++ [r'])
+        res -> ExtCh [res, r']
+visitExp Paren {parenExpression=expr} = visitExpUnAnnotate expr
 visitExp Interleave {interleaveLeftProcess=l, interleaveRightProcess=r} = do
     l' <- visitExpUnAnnotate l
     r' <- visitExpUnAnnotate r

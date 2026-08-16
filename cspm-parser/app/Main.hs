@@ -4,6 +4,7 @@ import Control.Monad.IO.Class (MonadIO(liftIO))
 import Text.Pretty.Simple (pPrint)
 import System.Environment (getArgs)
 import Visitor (visitFile)
+import Compiler (compileDefinitions)
 import qualified Data.Text.Lazy as TL
 
 parseAST :: String -> IO PCSPMFile
@@ -24,4 +25,6 @@ main = do
     ast <- parseAST $ head files
     -- pPrint ast
     code <- visitFile ast
+    s <- compileDefinitions code
     pPrint code
+    putStrLn s
