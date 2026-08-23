@@ -18,6 +18,7 @@ import Formatting (sformat, (%), stext)
 import Util.HierarchicalMap (flatten)
 import Data.Text.Internal.Builder (toLazyText)
 import Data.Text.Lazy (toStrict)
+import Data.Maybe (isNothing)
 
 -- Generator and related functions
 data Generator = Generator {
@@ -26,14 +27,23 @@ data Generator = Generator {
     indent :: T.Text, -- Indentation helper
     cur :: T.Text -- Temporary texts to help formatting at appending 'text'
 }
+    deriving (Show)
+newGen = Generator {text="", prefix="", indent="", cur=""}
+
 appendText :: Generator -> T.Text -> Generator
 appendText gen s = gen { text = text gen <> (fromText $ indent gen) <> (fromText s) }
 
 appendPrefix :: Generator -> T.Text -> Generator
 appendPrefix gen s = gen { prefix = prefix gen <> fromText s }
 
-appendToCur :: Generator -> T.Text -> Generator
-appendToCur gen s = gen { cur = cur gen <> s }
+appendCur :: Generator -> T.Text -> Generator
+appendCur gen s = gen { cur = cur gen <> s }
+
+appendIndentedCur :: Generator -> T.Text -> Generator
+appendIndentedCur gen s = gen { cur = cur gen <> indent gen <> s }
+
+consumeCur :: Generator -> Generator
+consumeCur gen = gen { cur = "", text = text gen <> (fromText $ cur gen) }
 
 increaseTab :: Generator -> Generator
 increaseTab gen = gen { indent = "\t" <> indent gen }
@@ -43,14 +53,14 @@ decreaseTab gen = gen { indent = T.tail $ indent gen }
 
 compileDefinitions :: Monad m => [Definitions] -> m String
 compileDefinitions defs = do
-    Generator {text=t, prefix=p} <- foldlM compileDefs (Generator {text="", prefix="", indent="\t\t", cur=""}) defs
+    Generator {text=t, prefix=p} <- foldlM compileDefs (newGen { indent="\t\t" }) defs
     return $ T.unpack $ toStrict $ toLazyText $ p <> t
 
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
     pat' <- compilePatt pat
     let gen' = increaseTab $ appendText gen (pat' <> " =| {\n")
-    gen'' <- decreaseTab <$> compileExpr gen' expr
+    gen'' <- decreaseTab <$> consumeCur <$> compileExpr gen' expr
     return $ appendText gen'' "}\n"
 compileDefs gen def = return gen
 
@@ -58,27 +68,44 @@ compileExpr :: Monad m => Generator -> Expression -> m Generator
 compileExpr gen (Seq seq) = do
     foldlM compileExpr gen seq
 compileExpr gen (Event expr fields) = do
-    chan <- compileExpr gen expr
-    fields' <- mapM (compileExpr gen) fields
-    let params = map cur fields'
-    let t = sformat ("chan(@" % stext % ", {" % stext % "});\n") (cur chan) (T.intercalate ", " params)
-    return $ appendText gen t
+    let ng = newGen
+    chan <- compileExpr ng expr
+    fields' <- mapM (compileInOut ng) fields
+    let (recv, send) = unzip fields'
+    if all isNothing recv
+    then
+        -- -- TODO: verify if its a channel, a function call or STOP/SKIP
+        case expr of
+            V "SKIP" -> return gen
+            V "STOP" -> return gen
+            _ -> return $ appendIndentedCur gen $ sformat ("env(@" % stext % ", {" % stext % "});\n") (cur chan) (T.intercalate ", " send)
+    else
+        return $ appendIndentedCur gen $ sformat ("{" % stext % "} = env(@" % stext % ", {" % stext % "});\n")
+            (T.intercalate ", " $ map (\case
+                Just p -> p
+                Nothing -> "{}") recv)
+            (cur chan) (T.intercalate ", " send)
+    where
+        compileInOut :: Monad m => Generator -> Expression -> m (Maybe T.Text, T.Text)
+        compileInOut gen (In p) = do
+            s <- compilePatt p
+            return $ (Just s, "@recv")
+        compileInOut gen (Out expr) = do
+            expr' <- compileExpr gen expr
+            return $ (Nothing, cur expr')
+        
     -- foldlM compileExpr chan fields
-compileExpr gen (In p) = do
-    s <- compilePatt p
-    return $ appendToCur gen s
-compileExpr gen (Out expr) = compileExpr gen expr
 compileExpr gen (V "STOP") = do
-    return $ appendText gen "@stop\n"
+    return $ appendIndentedCur gen "@stop\n"
 compileExpr gen (V "SKIP") = do
-    return $ appendText gen "@skip\n"
+    return $ appendIndentedCur gen "@skip\n"
 compileExpr gen (V s) = do
-    return $ appendToCur gen (decodeUtf8 s)
+    return $ appendCur gen (decodeUtf8 s)
 compileExpr gen (L l) = do
     s <- compilePatt (PatL l)
-    return $ appendToCur gen s
+    return $ appendCur gen s
 compileExpr gen expr =
-    return $ appendToCur gen (T.show expr)
+    return $ appendIndentedCur gen (T.show expr)
 
 compilePatt :: Monad m => Pattern -> m T.Text
 compilePatt (PatL l) = return $ literalToText l

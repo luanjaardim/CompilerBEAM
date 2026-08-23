@@ -121,14 +121,16 @@ visitExp Prefix {prefixChannel=pC, prefixFields=pF, prefixProcess=pP} = do
     pF' <- mapM (fieldIntoExpr . unAnnotate) pF
     pP' <- visitExpUnAnnotate pP
     return $ case pP' of
-        Seq l -> Seq ((Event pC' pF') : l)
-        res -> Seq [Event pC' pF', Event pP' []]
+        Seq l -> Seq (Event pC' pF' : l)
+        res -> Seq [Event pC' pF', pP']
 visitExp ExternalChoice {extChoiceLeftProcess=l, extChoiceRightProcess=r} = do
     l' <- visitExpUnAnnotate l
     r' <- visitExpUnAnnotate r
-    return $ case l' of
-        ExtCh choices -> ExtCh (choices ++ [r'])
-        res -> ExtCh [res, r']
+    return $ case (l', r') of
+        (ExtCh lchoices, ExtCh rchoices) -> ExtCh (lchoices ++ rchoices)
+        (ExtCh lchoices, x) -> ExtCh (x: lchoices)
+        (x, ExtCh rchoices) -> ExtCh (x: rchoices)
+        (x, y) -> ExtCh [x, y]
 visitExp Paren {parenExpression=expr} = visitExpUnAnnotate expr
 visitExp Interleave {interleaveLeftProcess=l, interleaveRightProcess=r} = do
     l' <- visitExpUnAnnotate l
@@ -152,6 +154,13 @@ visitExp Concat {concatLeftList=lhs, concatRightList=rhs} = do
     return $ Generic "concat"
 
 visitExp a = notImplemented "visitExp" a
+
+isSeq (Seq _) = True
+isSeq _ = False
+
+divideSeq :: Expression -> (Expression, [Expression])
+divideSeq (Seq (x:l)) = (x, l)
+divideSeq _ = error "Can only divide Seq expressions"
 
 notImplemented from x =
     let s = pShow x in
