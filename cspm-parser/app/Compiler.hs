@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 module Compiler (compileDefinitions) where
 
 import Visitor (Definitions (Proc), Expression (..), Pattern (PatL, PatV))

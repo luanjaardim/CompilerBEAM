@@ -42,12 +42,12 @@
           default = pkgs.mkShell {
                 packages = [
                   pkgs.erlang pkgs.rebar3 # To compile and use the Erlang language and the BEAM VM
+                  pkgs.cabal-install
 
                   # Haskell Packages from pinned tarball
                   hlsPkgs.haskellPackages.ghc
                   hlsPkgs.haskellPackages.alex
                   hlsPkgs.haskellPackages.happy
-                  hlsPkgs.haskellPackages.cabal-install
 
                   # Commands from the FDR4 FHS Environment
                   runFdr

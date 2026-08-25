@@ -18,3 +18,7 @@
 -*.iml
 -rebar3.crashdump
 -*~
+rebar.lock
+dist-newstyle/*
+_build/*
+fdr
