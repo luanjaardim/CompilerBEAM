@@ -56,7 +56,7 @@ compile_dulang_dir() ->
     {ok, Files} = file:list_dir(Dir),
     lists:foreach(fun(F) -> compile(Dir ++ F) end, Files).
 
-visit_aux({module, _, {var, Loc, ModuleName}, Clauses}, 0) ->
+visit_aux({module, _, {var, Loc, ModuleName}, Behaviors, Clauses}, 0) ->
     ModuleDefinitions = visit_list_aux(Clauses, 0),
     self() ! done, % Last message on mailbox
     Loop = fun Loop(ExpFunctions) ->
@@ -66,7 +66,8 @@ visit_aux({module, _, {var, Loc, ModuleName}, Clauses}, 0) ->
             done -> ExpFunctions
         end
     end,
-    [{attribute, Loc, module, ModuleName}, {attribute, Loc, export, Loop([])} | ModuleDefinitions];
+    AttrBehaviors = lists:map(fun({atom, L, B}) -> {attribute, L, behavior, B} end, Behaviors),
+    [{attribute, Loc, module, ModuleName}, {attribute, Loc, export, Loop([])} | AttrBehaviors ++ ModuleDefinitions];
 
 visit_aux({pub, Def}, 0) ->
     DefAst = visit_aux(Def, 0),
