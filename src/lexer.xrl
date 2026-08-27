@@ -16,7 +16,6 @@ Rules.
 \/\/ : {token, {'div', TokenLoc}}.
 \%   : {token, {'rem', TokenLoc}}.
 =    : {token, {asgn, TokenLoc}}.
-=\|  : {token, {'=|', TokenLoc}}.
 \?   : {token, {'?', TokenLoc}}.
 \!   : {token, {'!', TokenLoc}}.
 ==   : {token, {'==', TokenLoc}}.
@@ -48,12 +47,13 @@ if      : {token, {if_kw, TokenLoc}}.
 pub     : {token, {pub_kw, TokenLoc}}.
 match   : {token, {match_kw, TokenLoc}}.
 mod     : {token, {mod_kw, TokenLoc}}.
-lambda  : {token, {lambda_kw, TokenLoc}}.
+fn\(    : {token, {fn_par_kw, TokenLoc}}.
+fn      : {token, {fn_kw, TokenLoc}}.
 true    : {token, {'true', TokenLoc}}.
 false   : {token, {'false', TokenLoc}}.
 __EOF__ : {token, {eof, TokenLoc}}.
 
-\"[^\"]*\"  : {token, {string, TokenLoc, scape_string(TokenChars)}}.
+\"[^\"]*\"  : {token, {string, TokenLoc, escape_string(TokenChars)}}.
 %\"[^\"]*\"  : {token, {string, TokenLoc, lists:droplast(tl(TokenChars))}}.
 \-?{DIGIT}+ : {token, {integer, TokenLoc, list_to_integer(TokenChars)}}.
 @{WORD}  : {token, {atom, TokenLoc, list_to_atom(tl(TokenChars))}}.
@@ -61,7 +61,7 @@ __EOF__ : {token, {eof, TokenLoc}}.
 ({WORD}|{WORD}\:{WORD})\( : {token, {fn_call, TokenLoc, lists:map(fun(S) -> list_to_atom(S) end, string:tokens(lists:droplast(TokenChars), ":"))}}.
 
 Erlang code.
-scape_string(S) ->
+escape_string(S) ->
 	Split = fun Rec([$\\, $n | Tl]) -> [$\n | Rec(Tl)];
 		    Rec([$\\, $t | Tl]) -> [$\t | Rec(Tl)];
 		    Rec([$\\, $r | Tl]) -> [$\r | Rec(Tl)];

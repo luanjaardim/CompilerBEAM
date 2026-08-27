@@ -1,5 +1,5 @@
 Nonterminals
-	arguments lambda_def fn_definition func_params clauses clause_aux guards guards_or guards_and
+	arguments lambda_def lambda_def_aux fn_definition func_params clauses clause_aux guards guards_or guards_and
 	expr match branch sttm sttms block mod_decl mod_decl_aux send_def send_def_aux fn_decl def definitions
 	tuple tuple_aux list list_aux call_func.
 Terminals
@@ -7,9 +7,9 @@ Terminals
 	'+' '-' '*' '/' 'div' 'rem'
 	'==' '/=' '>' '<' '>=' '=<' '::'
 	fn_call asgn
-	match_kw if_kw 'true' 'false' pub_kw mod_kw lambda_kw
+	match_kw if_kw 'true' 'false' pub_kw mod_kw fn_kw fn_par_kw
 	'(' ')' '[' ']' '{' '}'
-	'||' '&&' '=>' '=|' '?' '!' '|' ';' ',' eof.
+	'||' '&&' '=>' '?' '!' '|' ';' ',' eof.
 
 Rootsymbol definitions.
 
@@ -108,14 +108,17 @@ fn_definition -> '(' arguments block : {'clause', '$1', {'args', '$2'}, {'guards
 
 % Function as an expr, anonymous lambda function
 expr -> lambda_def : '$1'.
-lambda_def -> lambda_kw '(' arguments block : {'lambda', '$1', {'args', '$3'}, '$4'}.
+lambda_def_aux -> arguments block '|' '(' lambda_def_aux : [{'clause', 'none', {'args', '$1'}, {'guards', []}, '$2'} | '$5'].
+lambda_def_aux -> arguments block : [{'clause', 'none', {'args', '$1'}, {'guards', []}, '$2'}].
+lambda_def -> fn_kw '(' lambda_def_aux : {'lambda', '$1', '$3'}.
+lambda_def -> fn_par_kw lambda_def_aux : {'lambda', '$1', '$2'}.
 
 % Receive messages
 expr -> '?' fn_definition: {recv, '$1', ['$2']}.
 expr -> '?' fn_definition clause_aux: {recv, '$1', ['$2' | '$3']}.
 
-clauses -> '=|' fn_definition clause_aux: ['$2' | '$3'].
-clauses -> '=|' fn_definition: ['$2'].
+clauses -> asgn fn_definition clause_aux: ['$2' | '$3'].
+clauses -> asgn fn_definition: ['$2'].
 clause_aux -> '|'  fn_definition clause_aux: ['$2' | '$3'].
 clause_aux -> '|'  fn_definition: ['$2'].
 
@@ -125,7 +128,6 @@ sttm -> fn_decl : '$1'.
 sttm -> tuple asgn expr : {match, '$2', '$1', '$3'}.
 sttm -> var asgn expr : {match, '$2', '$1', '$3'}.
 fn_decl -> var clauses : {function, '$1', '$2'}.
-fn_decl -> var asgn fn_definition : {function, '$1', ['$3']}.
 mod_decl_aux -> def '}' : ['$1'].
 mod_decl_aux -> def mod_decl_aux : ['$1' | '$2'].
 mod_decl -> mod_kw var '{' mod_decl_aux : {module, '$1', '$2', '$4'}.

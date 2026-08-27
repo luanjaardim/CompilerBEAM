@@ -43,11 +43,11 @@ visit(FileName) -> visit(FileName, true).
 compile(FileName) ->
     AbsFormat = visit(FileName, false),
     lists:foreach(fun(ModAbsFormat = [{attribute, _, module, ModuleName} | _]) ->
-        case compile:forms(ModAbsFormat, [binary]) of
-            {ok, _, Bin} ->
+        case compile:forms(ModAbsFormat, [binary, return_errors, return_warnings]) of
+            {ok, _, Bin, _} ->
                 io:format("Saving Dulang Module ~p\n", [atom_to_list(ModuleName)]),
                 file:write_file(filename:dirname(?FILE) ++ "/../_build/default/lib/dulang/ebin/" ++ atom_to_list(ModuleName) ++ ".beam", Bin);
-            _ -> throw(compile_fail)
+            Err -> io:format("~p\n", [Err])
         end
     end, lists:droplast(AbsFormat)), ok.
 
@@ -88,8 +88,9 @@ visit_aux({function, {var, Loc, Name}, Clauses}, Level) when Level > 0 ->
         {named_fun, Loc, Name, visit_list_aux(Clauses, Level+1) }
     };
 % Defining anonymous functions
-visit_aux({lambda, {_, Loc}, {args, ArgsList}, Body}, Level) ->
-    {'fun', Loc, {clauses, [{clause, Loc, visit_list_aux(ArgsList, Level), [], visit_list_aux(Body, Level+1)}]} };
+visit_aux({lambda, {_, Loc}, Clauses}, Level) ->
+    ClausesWithLoc = lists:map(fun({clause, none, Args, Guards, Body}) -> {clause, {none, Loc}, Args, Guards, Body} end, Clauses),
+    {'fun', Loc, {clauses, visit_list_aux(ClausesWithLoc, Level+1)} };
 
 visit_aux({clause, {_, Loc}, {args, ArgsList}, {guards, GuardsList}, Body}, Level) ->
     {clause, Loc,
