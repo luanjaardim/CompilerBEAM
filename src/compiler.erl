@@ -119,6 +119,10 @@ visit_aux({{fn_call, Loc, [ModName, FnName]}, Parameters}, Level) ->
 visit_aux({op, {Operation, Loc}, Lhs, Rhs}, Level) ->
     {op, Loc, Operation, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 
+visit_aux({map, {_, Loc}, Elems}, Level) -> {map, Loc, visit_list_aux(Elems, Level)};
+visit_aux({map_field_assoc, {_, Loc}, Lhs, Rhs}, Level) -> {map_field_assoc, Loc, visit_aux(Lhs, Level+1), visit_aux(Rhs, Level+1)};
+visit_aux({map_field_exact, {_, Loc}, Lhs, Rhs}, Level) -> {map_field_exact, Loc, visit_aux(Lhs, Level+1), visit_aux(Rhs, Level+1)};
+
 visit_aux({cons, {_, Loc}, Lhs, Rhs}, Level) -> {cons, Loc, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 visit_aux({nil, {_, Loc}}, _) -> {nil, Loc};
 visit_aux({tuple, {_, Loc}, Elems}, Level) -> {tuple, Loc, visit_list_aux(Elems, Level)};
