@@ -1,7 +1,7 @@
 Nonterminals
 	basic match_expr expr
 	list list_aux tuple tuple_aux
-	recv_def send_def send_def_aux
+	recv_def send_def
 	call_func func_params lambda_def lambda_def_aux
 	fn_def clause clause_aux arguments guards guards_or guards_and block
 	match branch map map_fields map_match map_match_fields emp_map
@@ -31,7 +31,6 @@ Left 50 '>'.
 Left 50 '<'.
 Left 50 '>='.
 Left 50 '=<'.
-Left 50 '=>'.
 
 Right 20 '!'.
 
@@ -39,6 +38,7 @@ Left 10 '||'.
 Left 10 '&&'.
 Left 10 '::'.
 
+Left 6 '=>'.
 Right 5 '='.
 
 basic -> integer: '$1'.
@@ -50,7 +50,7 @@ basic -> 'false': '$1'.
 basic -> tuple  : '$1'.
 basic -> list   : '$1'.
 
-match_expr -> '(' match_expr ')': '$3'.
+match_expr -> '(' match_expr ')': '$2'.
 match_expr -> basic: '$1'.
 match_expr -> map_match: '$1'.
 match_expr -> emp_map: '$1'.
@@ -58,6 +58,7 @@ match_expr -> emp_map: '$1'.
 match_expr -> match_expr '::' match_expr: {cons, '$2', '$1', '$3'}.
 
 expr -> match_expr: '$1'.
+expr -> '(' expr ')': '$2'.
 
 % Arithmetical operations
 expr -> expr '+' expr : {op, '$2', '$1', '$3'}.
@@ -106,12 +107,11 @@ expr -> match: '$1'.
 branch -> '|' match_expr '=>' block : [{'clause', '$1', {'args', ['$2']}, {'guards', []}, '$4'}].
 branch -> '|' match_expr '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', []}, '$4'} | '$5'].
 branch -> '|' match_expr guards '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', '$3'}, '$5'} | '$6'].
-match -> match_kw expr branch: {'case', '$1', '$2', '$3'}.
+match -> match_kw expr clause_aux: {'case', '$1', '$2', '$3'}.
 
 % Send messages
 expr -> send_def: '$1'.
-send_def_aux -> expr: '$1'.
-send_def -> expr '!' send_def_aux: {op, '$2', '$1', '$3'}.
+send_def -> expr '!' expr: {op, '$2', '$1', '$3'}.
 
 % Receive messages
 expr -> recv_def: '$1'.
@@ -149,19 +149,26 @@ fn_def  -> fn_kw var '=' clause clause_aux: {function, '$2', ['$4' | '$5']}.
 
 sttm -> match_expr '=' expr: {match, '$2', '$1', '$3'}.
 sttm -> fn_def: '$1'.
+sttm -> expr: return_error("Expecting a Statement, not an Expression. Discard the value with: _ = ...", '$1').
 sttms -> sttm : ['$1'].
 sttms -> sttms ';' sttm: ['$3' | '$1'].
-block -> expr: ['$1'].
-block -> '{' sttms '}': '$2'.
+block -> '{' sttms '}': lists:reverse('$2').
 block -> '{' sttms ';' expr '}': lists:reverse(['$4' | '$2']).
+block -> '=>' expr: ['$2'].
+block -> expr: return_error("Was expecting an body, not an expression.", '$1').
 
 def -> fn_def: '$1'.
 def -> pub_kw fn_def: {pub, '$2'}.
+def -> def ';': return_error("Was not expecting a ';' after this definition.", '$2').
 
 mod_def_aux -> def '}' : ['$1'].
 mod_def_aux -> def mod_def_aux : ['$1' | '$2'].
+mod_def_aux -> sttm : return_error("At a Module main definition, a statement is not valid.", '$1').
 mod_def -> mod_kw var '{' mod_def_aux : {module, '$1', '$2', [], '$4'}.
 mod_def -> mod_kw var '(' arguments '{' mod_def_aux : {module, '$1', '$2', '$4', '$6'}.
+% Empty modules error
+mod_def -> mod_kw var '(' arguments '{' '}' : return_error("Empty Module.", '$2').
+mod_def -> mod_kw var '{' '}' : return_error("Empty Module.", '$2').
 
 definitions -> mod_def definitions : ['$1' | '$2'].
 definitions -> eof : ['$1'].
