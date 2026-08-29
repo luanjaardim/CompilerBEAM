@@ -4,7 +4,7 @@ Nonterminals
 	recv_def send_def
 	call_func func_params lambda_def lambda_def_aux
 	fn_def clause clause_aux arguments guards guards_or guards_and block
-	match branch map map_fields map_match map_match_fields emp_map
+	match map map_fields map_match map_match_fields emp_map
 	definitions def mod_def mod_def_aux sttms sttm.
 
 Terminals
@@ -55,7 +55,7 @@ match_expr -> basic: '$1'.
 match_expr -> map_match: '$1'.
 match_expr -> emp_map: '$1'.
 % List append
-match_expr -> match_expr '::' match_expr: {cons, '$2', '$1', '$3'}.
+match_expr -> expr '::' expr: {cons, '$2', '$1', '$3'}.
 
 expr -> match_expr: '$1'.
 expr -> '(' expr ')': '$2'.
@@ -97,16 +97,14 @@ lambda_def -> fn_par_kw lambda_def_aux : {'lambda', '$1', '$2'}.
 
 % Function call
 expr -> call_func: '$1'.
+func_params -> ')' : [].
 func_params -> expr ')' : ['$1'].
 func_params -> expr ',' func_params : ['$1'] ++ '$3'.
 call_func -> fn_call func_params : {'$1', '$2'}.
-call_func -> fn_call ')' : {'$1', []}.
+call_func -> expr '(' func_params : {'call', '$2', '$1', '$3'}.
 
 % Match expression
 expr -> match: '$1'.
-branch -> '|' match_expr '=>' block : [{'clause', '$1', {'args', ['$2']}, {'guards', []}, '$4'}].
-branch -> '|' match_expr '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', []}, '$4'} | '$5'].
-branch -> '|' match_expr guards '=>' block branch: [{'clause', '$1', {'args', ['$2']}, {'guards', '$3'}, '$5'} | '$6'].
 match -> match_kw expr clause_aux: {'case', '$1', '$2', '$3'}.
 
 % Send messages
@@ -135,8 +133,8 @@ guards_and -> expr '&&' guards_and: ['$1' | '$3'].
 guards_or -> guards_and '||' guards_or: ['$1'] ++ '$3'.
 guards_or -> guards_and : ['$1'].
 guards -> if_kw guards_or: '$2'.
-arguments -> expr ',' arguments: ['$1'] ++ '$3'.
-arguments -> expr ')': ['$1'].
+arguments -> match_expr ',' arguments: ['$1'] ++ '$3'.
+arguments -> match_expr ')': ['$1'].
 arguments -> ')': [].
 clause -> '(' arguments guards block : {'clause', '$1', {'args', '$2'}, {'guards', '$3'}, '$4'}.
 clause -> '(' arguments block : {'clause', '$1', {'args', '$2'}, {'guards', []}, '$3'}.
