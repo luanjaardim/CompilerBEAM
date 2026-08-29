@@ -1,5 +1,5 @@
 -module(transformer_proc).
--export([create/0, inside_module/1, inside_scope/1, add_def/1, find_def/1, debug/0]).
+-export([create/0, finish/0, inside_module/1, inside_scope/1, add_def/1, find_def/1, debug/0]).
 -record(transformer, {
     seed = 0,
     scopes = [#{}],
@@ -7,6 +7,7 @@
 }).
 
 create() -> register(transformer_proc, spawn(fun() -> main(#transformer{}) end)).
+finish() -> transformer_proc ! 'end'.
 
 main(T = #transformer { seed = Seed, scopes = Sc = [ScH | ScTl], level = L}) ->
     T_ = receive
@@ -22,6 +23,7 @@ main(T = #transformer { seed = Seed, scopes = Sc = [ScH | ScTl], level = L}) ->
             % Return the List to the requester
             From ! {found, Filtered}, T;
         free -> #transformer{};
+        'end' -> unregister(transformer_proc), exit("Process ended.");
         debug -> io:format("~p~n", [T]), T
     end, main(T_).
 

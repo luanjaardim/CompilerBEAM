@@ -34,7 +34,6 @@ convert(FileName) ->
 
 visit(FileName, Output) ->
     Ast=parse(FileName, dulang, false),
-    transformer_proc:create(),
     AbsFormat = lists:map(fun(Mod) -> visit_aux(Mod, 0) end, Ast),
     if Output -> io:format("~p\n", [AbsFormat]); true -> no_output end,
     AbsFormat.
@@ -42,7 +41,9 @@ visit(FileName, Output) ->
 visit(FileName) -> visit(FileName, true).
 
 compile(FileName) ->
+    transformer_proc:create(),
     AbsFormat = visit(FileName, false),
+    transformer_proc:finish(),
     lists:foreach(fun(ModAbsFormat = [{attribute, _, module, ModuleName} | _]) ->
         case compile:forms(ModAbsFormat, [binary, return_errors, return_warnings]) of
             {ok, _, Bin, _} ->
