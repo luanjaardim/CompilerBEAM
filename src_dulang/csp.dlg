@@ -1,0 +1,79 @@
+mod csp_channel {
+  $ spawn and register a channel proc
+  pub fn create = (name) => register(name, spawn(fn () => main(#{@queue = [], @waiting = [], @relations = [], @sync_msgs = #{}})))
+  $ @queue: data async sent to this proc
+  $ @waiting: procs waiting to data from this proc, those procs are not in any relation
+  $ @relations: list of tuples: a set with the pids that are synchronizing in this channel and the counter of how many are already waiting
+  $ @sync_msgs: the msgs that every waiting sync proc sent: can be @event, @recv, {@sent, data}
+  fn main = (ctx <- #{@queue: queue, @waiting: waiting, @relations: relations, @sync_msgs: sync_msgs}) =>
+      ?({@rel, pids}) => main(ctx#{@relations = pids :: relations})
+      |(@debug) { _=utils:print(ctx); main(ctx) }
+      |(msg) {
+        {from, content} = match msg
+          | ({@event, from}) => {from, @event}
+          | ({@send, data, from}) => {from, {@send, data}}
+          | ({@recv, from}) => {from, @recv};
+        main(match {has_relation(from, relations), content}
+          | ({false, @event}) { _ = from ! @ack; ctx }
+          | ({false, @recv}) =>
+              (match queue
+              | (x :: l) { _= from ! x; ctx#{@queue = l} }
+              | ([]) => ctx#{@waiting = from :: waiting})
+          | ({false, {@send, data}}) {
+              _ = from ! @ack;
+              match waiting
+              | (h :: l) { _ = h ! data; ctx#{@waiting = l} }
+              | ([]) => ctx#{@queue = data :: queue}
+          }
+          | ({{@value, elem <- {set, cnt}}, c}) =>
+            (match (sets:size(set) == (cnt+1))
+            | (true) {
+              @ok = dispatch_sync_msgs(sync_msgs#{from = c}, set);
+              ctx#{@relations = {set, 0} :: lists:delete(elem, relations)}
+            }
+            | (false) => ctx#{
+                @relations = {set, cnt+1} :: lists:delete(elem, relations),
+                @sync_msgs = sync_msgs#{from = c}
+            }
+            )
+          | (something) => error(something)
+        )
+      }
+  fn has_relation = (pid, relations) => lists:search(fn({set, _}) => sets:is_element(pid, set), relations)
+  fn dispatch_sync_msgs = (msgs, set) {
+    $ Turn the stored messages from every member of the set into a list
+    l = lists:filter(fn({x, _}) => sets:is_element(x, set), maps:to_list(msgs));
+    $ Sort the list to handle @send first, to accumulate data that will be sent to the ones that want to receive it
+    sorted = lists:sort(fn({_, {@send, _}}, _) => true | (_, {_, {@send, _}}) => false | (_, _) => true, l);
+    _=lists:foldl(
+      fn({from, {@send, x}}, acc) {
+        _=from ! @ack;
+        x :: acc
+      }|({from, @recv}, x :: tl) {
+        _=from ! x;
+        tl
+      }
+      $ This branch handles a recv that has no data to receive
+      |({from, @recv}, []) => error(@not_implemented)
+      |({from, @event}, acc) {
+        _=from ! @ack;
+        acc
+      }, [], sorted);
+    @ok
+  }
+  pub fn event = (name) {
+    _ = name ! {@event, self()};
+    ?(@ack) => @ok
+  }
+  pub fn send = (name, data) {
+    _ = name ! {@send, data, self()};
+    ?(@ack) => @ok
+  }
+  pub fn recv = (name) {
+    _ = name ! {@recv, self()};
+    ?(data) => data
+  }
+  $ receive a list of pids and send to the channel proccess a tuple
+  $ with a set of the pids and the number of procs currently waiting to synchronize
+  pub fn sync = (name, pids) => name ! {@rel, {sets:from_list(pids), 0}}
+}

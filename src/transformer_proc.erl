@@ -13,6 +13,7 @@ main(T = #transformer { seed = Seed, scopes = Sc = [ScH | ScTl], level = L}) ->
     T_ = receive
         next_level -> T#transformer { level = L+1, scopes = [#{} | Sc] };
         prev_level -> T#transformer { level = L-1, scopes = ScTl};
+        {def, '_', From} -> From ! {created, '_'}, T;
         {def, FnName, From} ->
             CompName = case L of 0 -> FnName; _ -> list_to_atom("def" ++ integer_to_list(Seed)) end,
             From ! {created, CompName},

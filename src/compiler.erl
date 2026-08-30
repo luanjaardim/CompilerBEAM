@@ -145,6 +145,8 @@ visit_aux({map_field_exact, {_, Loc}, Lhs, Rhs}, Level) -> {map_field_exact, Loc
 visit_aux({cons, {_, Loc}, Lhs, Rhs}, Level) -> {cons, Loc, visit_aux(Lhs, Level), visit_aux(Rhs, Level)};
 visit_aux({nil, {_, Loc}}, _) -> {nil, Loc};
 visit_aux({tuple, {_, Loc}, Elems}, Level) -> {tuple, Loc, visit_list_aux(Elems, Level)};
+visit_aux({'true', Loc}, _) -> {atom, Loc, 'true'};
+visit_aux({'false', Loc}, _) -> {atom, Loc, 'false'};
 visit_aux(Atom = {atom, _, _}, _) -> Atom;
 visit_aux(Int = {integer, _, _}, _) -> Int;
 visit_aux(Str = {string, _, _}, _) -> Str;
