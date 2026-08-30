@@ -9,8 +9,8 @@ set expandtab
 
 " Variable Names / Identifiers
 " Matches lowercase words, parameters like (name), or standard identifiers
-syntax match variable /[a-z_][a-zA-Z0-9_]*/
-syntax match atom /@[a-z_][a-zA-Z0-9_]*/
+syntax match variable /[a-zA-Z_][a-zA-Z0-9_]*/
+syntax match atom /@[a-zA-Z_][a-zA-Z0-9_]*/
 
 " Keywords
 syntax keyword keywords mod pub fn false if match

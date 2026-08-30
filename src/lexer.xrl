@@ -16,6 +16,7 @@ Rules.
 \/\/ : {token, {'div', TokenLoc}}.
 \%   : {token, {'rem', TokenLoc}}.
 =    : {token, {'=', TokenLoc}}.
+<\-  : {token, {'<-', TokenLoc}}.
 \?   : {token, {'?', TokenLoc}}.
 \!   : {token, {'!', TokenLoc}}.
 ==   : {token, {'==', TokenLoc}}.

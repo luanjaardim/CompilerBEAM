@@ -10,7 +10,7 @@ Nonterminals
 Terminals
 	integer string var atom
 	'+' '-' '*' '/' 'div' 'rem'
-	'=' '==' '/=' '>' '<' '>=' '=<' '::'
+	'=' '<-' '==' '/=' '>' '<' '>=' '=<' '::'
 	fn_call match_kw if_kw 'true' 'false' pub_kw mod_kw fn_kw fn_par_kw
 	'(' ')' '[' ']' '{' '}'
 	'||' '&&' '=>' '?' '!' '|' '#' ';' ':' ',' eof.
@@ -56,6 +56,8 @@ match_expr -> map_match: '$1'.
 match_expr -> emp_map: '$1'.
 % List append
 match_expr -> expr '::' expr: {cons, '$2', '$1', '$3'}.
+% Argument assignment
+match_expr -> var '<-' expr: {match, '$2', '$1', '$3'}.
 
 expr -> match_expr: '$1'.
 expr -> '(' expr ')': '$2'.
