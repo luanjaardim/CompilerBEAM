@@ -58,7 +58,8 @@ compile_dulang_dir() ->
     {ok, Files} = file:list_dir(Dir),
     lists:foreach(fun(F) -> compile(Dir ++ F) end, Files).
 
-visit_aux({module, _, {var, Loc, ModuleName}, Behaviors, Definitions}, 0) ->
+visit_aux({module, {_, Loc}, Var, Behaviors, Definitions}, 0) ->
+    ModuleName = case Var of {var, _, N} -> N; {fn_call, _, [N]} -> N end,
     % Visit every Definition inside this module definition creating a transformer process
     ModuleDefinitions = transformer_proc:inside_module(fun() -> visit_list_aux(Definitions, 0) end),
     self() ! done, % Last message on mailbox

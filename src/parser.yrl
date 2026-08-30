@@ -165,6 +165,7 @@ mod_def_aux -> def '}' : ['$1'].
 mod_def_aux -> def mod_def_aux : ['$1' | '$2'].
 mod_def_aux -> sttm : return_error("At a Module main definition, a statement is not valid.", '$1').
 mod_def -> mod_kw var '{' mod_def_aux : {module, '$1', '$2', [], '$4'}.
+mod_def -> mod_kw fn_call arguments '{' mod_def_aux : {module, '$1', '$2', '$3', '$5'}.
 mod_def -> mod_kw var '(' arguments '{' mod_def_aux : {module, '$1', '$2', '$4', '$6'}.
 % Empty modules error
 mod_def -> mod_kw var '(' arguments '{' '}' : return_error("Empty Module.", '$2').
