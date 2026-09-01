@@ -1,8 +1,57 @@
 mod utils {
-	pub print = (Msg) { io:format("~p\n", [Msg]); Msg }
-	pub delay = ({Time}) { timer:sleep(Time); }
+  pub fn print = (Msg) { _=io:format("~p\n", [Msg]); Msg }
+  pub fn delay = ({Time}) => timer:sleep(Time)
 }
 
-mod debug {
-	pub panic = () { self() ! {@debug, @panic} }
+$ P = a -> b -> STOP
+$   []
+$     b -> a -> P
+mod p(@gen_statem) {
+  pub fn create = (args) => gen_statem:start_link(@p, args, [])
+  pub fn callback_mode = () => @handle_event_function
+  pub fn init = (args) => {@ok, @p0, #{@args = args, @queue = #{}}, [{@next_event, @cast, @start}]}
+  pub fn handle_event =
+  (@cast, @start, @p0, data <- #{@queue: q}) {
+    _= io:format("entering @p0 -> queue: ~p~n", [q]);
+    match q
+    $ The first branch verifies if any channel of the external choice answered when it was computing other branch
+    | (#{@p0: h :: tl}) => {@next_state, @p1, data#{@queue = q#{@p0 = tl}}, [{@next_event, @cast, h}]}
+    $ When there is no messages on queue execute the main body, asking every channel on the external choice
+    | (_) {
+      _ = @b ! csp_channel:event_msg(@p0);
+      _ = @a ! csp_channel:event_msg(@p0);
+      {@keep_state, data} $ then keep state and waits the first response
+    }
+  }
+  $ This case will handle the first message received, after the execution of all the requests done previously
+  | (@cast, event <- {_, @p0}, @p0, data) => {@next_state, @p1, data, [{@next_event, @cast, event}]}
+  $ Here ends the external choice
+
+  $ This is the branch: a -> b -> STOP
+  | (@cast, {@a, @p0}, @p1, data) {
+    _= io:format("@p1 at event 'a'~n");
+    _ = @b ! csp_channel:event_msg(@p1);
+    {@next_state, @p2, data}
+  } | (@cast, {@b, @p1}, @p2, data) {
+    _= io:format("@p2 at event 'b' before STOP -> data: ~p~n", [data]);
+    {@next_state, @stop, data}
+    $exit(@STOP)
+  }
+
+  $ This is the branch: b -> a -> P
+  | (@cast, {@b, @p0}, @p1, data) {
+    _= io:format("@p1 at event 'b'~n");
+    _ = @a ! csp_channel:event_msg(@p1);
+    {@next_state, @p3, data}
+  } | (@cast, {@a, @p1}, @p3, data) {
+    _= io:format("@p3 at event 'a' before recursion~n");
+    $ as we have a recursion here we need to use @start as the next event
+    {@next_state, @p0, data, [{@next_event, @cast, @start}]}
+  }
+
+  $ This handles any message that was received unexpectedly, adding it to the queue of the state that requested it
+  | (event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) {
+      _=io:format("Received the event ('~p', '~p') of type '~p' at state '~p'.\n", [event, original_state, event_type, wrong_state]);
+      {@keep_state, csp_utils:add_to_state_queue(original_state, msg, data)}
+  }
 }
