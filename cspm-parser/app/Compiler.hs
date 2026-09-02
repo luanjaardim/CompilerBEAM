@@ -54,15 +54,21 @@ decreaseTab gen = gen { indent = T.tail $ indent gen }
 
 compileDefinitions :: Monad m => [Definitions] -> m String
 compileDefinitions defs = do
-    Generator {text=t, prefix=p} <- foldlM compileDefs (newGen { indent="\t\t" }) defs
+    Generator {text=t, prefix=p} <- foldlM compileDefs (newGen { indent="" }) defs
     return $ T.unpack $ toStrict $ toLazyText $ p <> t
 
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
     pat' <- compilePatt pat
-    let gen' = increaseTab $ appendText gen (pat' <> " =| {\n")
-    gen'' <- decreaseTab <$> consumeCur <$> compileExpr gen' expr
-    return $ appendText gen'' "}\n"
+    let gen' = appendText gen (sformat ("mod " % stext % "(@gen_statem) {\n\
+      \\tpub fn create = (args) => gen_statem:start_link(@" % stext % ", args, [])\n\
+      \\tpub fn callback_mode = () => @handle_event_function\n\
+      \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@args = args, @queue = #{}}, [{@next_event, @cast, @start}]}\n\
+      \\tpub fn handle_event =\n") (pat') (pat') (pat'))
+    gen'' <- consumeCur <$> compileExpr gen' expr
+    return $ appendText (gen''{indent=""}) $ sformat ("\n\t| (event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) {\n\
+\\t\t  _=io:format(\"Received the event ('~p', '~p') of type '~p' at state '~p'.\\n\", [event, original_state, event_type, wrong_state]);\n\
+\\t\t  {@keep_state, csp_utils:add_to_state_queue(original_state, msg, data)}\n\t}\n}")
 compileDefs gen def = return gen
 
 compileExpr :: Monad m => Generator -> Expression -> m Generator
