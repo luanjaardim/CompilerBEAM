@@ -24,7 +24,6 @@ import Data.Maybe (isNothing)
 -- Generator and related functions
 data Generator = Generator {
     text :: Builder, -- The compiled text accumulator
-    prefix :: Builder, -- Text that must be written before 'text'
     indent :: T.Text, -- Indentation helper
     cur :: T.Text, -- Temporary texts to help formatting at appending 'text'
     mod_name :: T.Text, -- The name of the current module
@@ -34,13 +33,13 @@ data Generator = Generator {
     seed :: Int -- State generator
 }
     deriving (Show)
-newGen = Generator {text="", prefix="", indent="", cur="", mod_name = "", ps = 0, cs = 0, ns = 1, seed = 1}
+newGen = Generator {text="", indent="", cur="", mod_name = "", ps = 0, cs = 1, ns = 2, seed = 2}
 
 appendText :: Generator -> T.Text -> Generator
-appendText gen s = gen { text = text gen <> (fromText $ indent gen) <> (fromText s) }
+appendText gen s = gen { text = text gen <> fromText s }
 
-appendPrefix :: Generator -> T.Text -> Generator
-appendPrefix gen s = gen { prefix = prefix gen <> fromText s }
+appendIndentedText :: Generator -> T.Text -> Generator
+appendIndentedText gen s = gen { text = text gen <> (fromText $ indent gen) <> (fromText s) }
 
 appendCur :: Generator -> T.Text -> Generator
 appendCur gen s = gen { cur = cur gen <> s }
@@ -65,59 +64,55 @@ onNextState gen @ Generator {ps=_ps, cs=_cs, ns=_ns, seed=_seed} = gen{ps=_cs, c
 
 compileDefinitions :: Monad m => [Definitions] -> m String
 compileDefinitions defs = do
-    Generator {text=t, prefix=p} <- foldlM compileDefs (newGen { indent="" }) defs
-    return $ T.unpack $ toStrict $ toLazyText $ p <> t
+    g <- foldlM compileDefs (newGen { indent="" }) defs
+    return $ T.unpack $ toStrict $ toLazyText $ text g
 
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
     proc_name <- compilePatt pat
+    let hasArrow = case expr of
+            Seq _ -> "=> "
+            _ -> ""
     let gen' = gen{mod_name=proc_name}
     let gen'' = appendText gen' $ sformat ("mod " % stext % "(@gen_statem) {\n\
       \\tpub fn create = (args) => gen_statem:start_link(@" % stext % ", args, [])\n\
       \\tpub fn callback_mode = () => @handle_event_function\n\
-      \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@args = args, @queue = #{}}, [{@next_event, @cast, @start}]}\n\
-      \\tpub fn handle_event =\n\t(@cast,@start,"%stext%",data) => ") proc_name proc_name proc_name (getStateText cs gen')
+      \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@queue = #{}}}\n\
+      \\tpub fn handle_event =\n\t(@cast,@start,"%stext%",data) "%stext) proc_name proc_name proc_name (getStateText ps gen') hasArrow
     gen''' <- consumeCur <$> compileExpr (increaseTab $ gen'') expr
-    return $ appendText (gen'''{indent=""})
+    return $ appendText gen'''
         "\n\t|(event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) =>\n\
         \\t\t  {@keep_state, csp_utils:add_to_state_queue(original_state, msg, data)}\n}\n"
 -- \\t\t  _=io:format(\"Received the event ('~p', '~p') of type '~p' at state '~p'.\\n\", [event, original_state, event_type, wrong_state]);\n\
 compileDefs gen def = return gen
 
 compileExpr :: Monad m => Generator -> Expression -> m Generator
+compileExpr gen (ExtCh exprs) = do
+    let pst = getStateText ps gen
+    let cst = getStateText cs gen
+    g <- foldlM (aux (ps gen, cs gen)) (
+        foldl appendIndentedText (appendText gen "{\n") [
+            "#{@queue: q} = data;\n",
+            "match q\n",
+            (sformat
+                ("| (#{"%stext%": h :: tl}) => {@next_state,"%stext%", data#{@queue = q#{"%stext%" = tl}}, [{@next_event, @cast, h}]}\n")
+                pst cst pst),
+            "|(_) {\n"]) exprs
+    return $ consumeCur $
+        appendIndentedText (appendIndentedText g "}\n") (
+            sformat ("}|(@cast, event <- {_,"%stext%"},"%stext%",data) => {@next_state,"%stext%", data, [{@next_event, @cast, event}]}\n")
+                pst pst cst)
+    where
+        aux (_ps, _cs) gen (Seq (h:tl)) = do
+            (g, msg, next_state) <- compileEvent gen{ps=_ps, cs=_cs} h False
+            let g' = appendIndentedCur (appendIndentedText g ("_=" <> msg <> ";\n")) $ next_state <> "=> "
+            compileExpr g' (Seq tl)
+
 compileExpr gen (Seq seq) = do
     foldlM compileExpr gen seq
-compileExpr gen (Event expr fields) = do
-    let g = onNextState gen
-    let ng = newGen
-    chan <- compileExpr ng expr
-    fields' <- mapM (compileInOut ng) fields
-    let cn = cur chan --channel name
-    let pst = getStateText ps g
-    let cst = getStateText cs g
-    let nst = getStateText ns g
-    let event = sformat ("{@" %stext% ", " %stext% "}") cn pst
-    let args = sformat ("csp_channel:event(@"%stext%","%stext%","%stext%",{@next_state, "%stext%", data})\n") cn pst cst cst
-    let (recv, send) = unzip fields'
-    if all isNothing recv
-    then
-        return $ appendIndentedCur (appendCur g args) $ sformat ("|(@cast," %stext% "," %stext% ",data) => ") event cst
-    else
-        return $ appendIndentedCur gen $ sformat ("{" % stext % "} = env(@" % stext % ", {" % stext % "});\n")
-            (T.intercalate ", " $ map (\case
-                Just p -> p
-                Nothing -> "{}") recv)
-            (cur chan) (T.intercalate ", " send)
-    where
-        compileInOut :: Monad m => Generator -> Expression -> m (Maybe T.Text, T.Text)
-        compileInOut gen (In p) = do
-            s <- compilePatt p
-            return $ (Just s, "@recv")
-        compileInOut gen (Out expr) = do
-            expr' <- compileExpr gen expr
-            return $ (Nothing, cur expr')
-        
-    -- foldlM compileExpr chan fields
+compileExpr gen (event @ (Event _ _)) = do
+    (g, msg, next_state) <- compileEvent gen event True
+    return $ appendIndentedCur (appendCur g $ msg <> "\n") $ next_state <> "=> "
 compileExpr gen (V "STOP") = do
     return $ appendCur gen "{@next_state, @stop, data}\n"
 compileExpr gen (V "SKIP") = do
@@ -129,6 +124,38 @@ compileExpr gen (L l) = do
     return $ appendCur gen s
 compileExpr gen expr =
     return $ appendIndentedCur gen (T.show expr)
+
+compileEvent :: Monad m => Generator -> Expression -> Bool -> m (Generator, T.Text, T.Text)
+compileEvent gen (Event expr fields) updateState = do
+    let g = if updateState then onNextState gen else gen
+    let ng = newGen
+    chan <- compileExpr ng expr
+    fields' <- mapM (compileInOut ng) fields
+    let cn = cur chan --channel name
+    let pst = getStateText ps g
+    let cst = getStateText cs g
+    let nst = getStateText ns g
+    let event = sformat ("{@" %stext% ", " %stext% "}") cn pst
+    let args = sformat ("csp_channel:event(@"%stext%","%stext%","%stext%",{@next_state, "%stext%", data})") cn pst cst cst
+    -- let (recv, send) = unzip fields'
+    return (g, args, sformat ("|(@cast," %stext% "," %stext% ",data) ") event cst)
+    -- if all isNothing recv
+    -- then
+    -- else
+    --     return $ appendIndentedCur gen $ sformat ("{" % stext % "} = env(@" % stext % ", {" % stext % "});\n")
+    --         (T.intercalate ", " $ map (\case
+    --             Just p -> p
+    --             Nothing -> "{}") recv)
+    --         (cur chan) (T.intercalate ", " send)
+    where
+        compileInOut :: Monad m => Generator -> Expression -> m (Maybe T.Text, T.Text)
+        compileInOut gen (In p) = do
+            s <- compilePatt p
+            return $ (Just s, "@recv")
+        compileInOut gen (Out expr) = do
+            expr' <- compileExpr gen expr
+            return $ (Nothing, cur expr')
+compileEvent _ _ _ = error "Not expected"
 
 compilePatt :: Monad m => Pattern -> m T.Text
 compilePatt (PatL l) = return $ literalToText l

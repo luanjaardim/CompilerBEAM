@@ -158,10 +158,6 @@ visitExp a = notImplemented "visitExp" a
 isSeq (Seq _) = True
 isSeq _ = False
 
-divideSeq :: Expression -> (Expression, [Expression])
-divideSeq (Seq (x:l)) = (x, l)
-divideSeq _ = error "Can only divide Seq expressions"
-
 notImplemented from x =
     let s = pShow x in
     error (from ++ "\nNot implemented:\n" ++ TL.unpack s)

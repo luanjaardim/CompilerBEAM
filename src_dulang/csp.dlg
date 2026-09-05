@@ -10,15 +10,15 @@ mod csp_channel {
       |(@debug) { _=utils:print(ctx); main(ctx) }
       |({content, from}) =>
         main(match {has_relation(from, relations), content}
-          | ({false, {@event, ps}}) { _ = from ! {list_to_atom("$gen_cast"), {name, ps}}; ctx }
+          | ({false, {@event, ps}}) { _ = from ! {cast(), {name, ps}}; ctx }
           | ({false, {@recv, ps}}) =>
               (match queue
-              | (x :: l) { _= from ! {name, ps, x}; ctx#{@queue = l} }
+              | (x :: l) { _= from ! {cast(),{name, ps, x}}; ctx#{@queue = l} }
               | ([]) => ctx#{@waiting = {from, ps} :: waiting})
           | ({false, {@send, ps, data}}) {
-              _ = from ! {name, ps};
+              _ = from ! {cast(),{name, ps}};
               match waiting
-              | ({h, ps_recv} :: l) { _ = h ! {name, ps_recv, data}; ctx#{@waiting = l} }
+              | ({h, ps_recv} :: l) { _ = h ! {cast(), {name, ps_recv, data}}; ctx#{@waiting = l} }
               | ([]) => ctx#{@queue = data :: queue}
           }
           | ({{@value, elem <- {set, cnt}}, c}) =>
@@ -51,14 +51,24 @@ mod csp_channel {
       $ This branch handles a recv that has no data to receive
       |({from, {@recv, ps}}, []) => error(@not_implemented)
       |({from, {@event, ps}}, acc) {
-        _=from ! {name, ps};
+        _=from ! {cast(),{name, ps}};
         acc
       }, [], sorted);
     @ok
   }
-  pub fn event_msg = (ns) => {{@event, ns}, self()}
-  pub fn send_msg = (ns, data) => {{@send, ns, data}, self()}
-  pub fn recv_msg = (ns) => {{@recv, ns}, self()}
+  fn cast = () => list_to_atom("$gen_cast")
+  pub fn event = (name, ps, ns, return) {
+    _= name ! {{@event, ps}, self()};
+    return
+  }
+  pub fn send = (name, ps, ns, x, return) {
+    _= name ! {{@send, ps, x}, self()};
+    return
+  }
+  pub fn recv = (name, ps, ns, return) {
+    _= name ! {{@recv, ps}, self()};
+    return
+  } 
   $ receive a list of pids and send to the channel proccess a tuple
   $ with a set of the pids and the number of procs currently waiting to synchronize
   pub fn sync = (name, pids) => name ! {@rel, {sets:from_list(pids), 0}}
