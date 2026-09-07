@@ -8,7 +8,7 @@ import Util.MonadicPrettyPrint (render, prettyPrint)
 import Text.Pretty.Simple (pShow)
 import Data.Foldable (foldlM)
 import qualified Data.ByteString.Builder as B
-import Data.List (intercalate)
+import Data.List (intercalate, (\\), nub)
 import Data.Text.Lazy.Builder (Builder, fromText, toLazyText)
 import qualified Data.Text as T
 import qualified Data.Text.Internal.StrictBuilder as T
@@ -20,6 +20,8 @@ import Util.HierarchicalMap (flatten)
 import Data.Text.Internal.Builder (toLazyText)
 import Data.Text.Lazy (toStrict)
 import Data.Maybe (isNothing)
+import Text.Regex.TDFA ((=~))
+import Text.Regex.TDFA.Text ()
 
 data DataReplaceable = DR (T.Text -> T.Text)
 instance Show DataReplaceable where
@@ -36,13 +38,14 @@ data Generator = Generator {
     indent :: T.Text, -- Indentation helper
     cur :: [DataReplaceable], -- Temporary texts to help formatting at appending 'text'
     mod_name :: T.Text, -- The name of the current module
+    tmp_params :: [T.Text],
     ps :: Int, -- Parent state
     cs :: Int, -- Current state
     ns :: Int, -- Next state
     seed :: Int -- State generator
 }
     deriving (Show)
-newGen = Generator {text="", indent="", cur=[], mod_name = "", ps = 0, cs = 0, ns = 1, seed = 1}
+newGen = Generator {text="", indent="", cur=[], tmp_params=[], mod_name = "", ps = 0, cs = 0, ns = 1, seed = 1}
 
 clearStates :: Generator -> Generator
 clearStates gen = gen{ps = 0, cs = 0, ns = 1, seed = 1}
@@ -60,22 +63,23 @@ appendIndentedText gen s = gen { text = text gen <> (fromText $ indent gen) <> (
 appendCur :: Generator -> DataReplaceable -> Generator
 appendCur gen s = gen { cur = s : (cur gen) }
 
-appendIndentedCur :: Generator -> DataReplaceable -> Generator
-appendIndentedCur gen (DR f) = gen { cur = (DR $ \x -> indent gen <> (f x)) : (cur gen)  }
-
 consumeCur :: Generator -> Generator
 consumeCur (gen @ (Generator {cur=(DR f):tl,text=t})) = gen { cur = tl, text = t <> (fromText $ f "") }
 consumeCur gen = gen
+
+consumeIndentedCur :: Generator -> Generator
+consumeIndentedCur (gen @ (Generator {cur=(DR f):tl,text=t, indent=i})) = gen { cur = tl, text = t <> (fromText $ i <> (f "")) }
+consumeIndentedCur gen = gen
 
 consumeAllCur :: Generator -> Generator
 consumeAllCur (gen @ (Generator {cur=l,text=t})) = gen { cur = [], text = t <> (fromText $ T.concat $ map (\(DR f) -> f "") $ reverse l) }
 
 takeCur (gen @ (Generator {cur=h:tl})) = (h, gen { cur=tl })
 
-createChannelCallDR :: T.Text -> T.Text -> T.Text -> T.Text -> DataReplaceable
-createChannelCallDR fn cn pst cst =
-    DR $ \case "" -> sformat (stext%"(@"%stext%","%stext%","%stext%",{@next_state,"%stext%",data})") fn cn pst cst cst
-               x  -> sformat (stext%"(@"%stext%","%stext%","%stext%",{@next_state,"%stext%","%stext%"})") fn cn pst cst cst x
+createChannelCallDR :: T.Text -> T.Text -> T.Text -> T.Text -> T.Text -> DataReplaceable
+createChannelCallDR fn cn pst cst d =
+    DR $ \case "" -> sformat (stext%"(@"%stext%","%stext%","%stext%","%stext%"{@next_state,"%stext%",data})") fn cn pst cst d cst
+               x  -> sformat (stext%"(@"%stext%","%stext%","%stext%","%stext%"{@next_state,"%stext%","%stext%"})") fn cn pst cst d cst x
 createStateParamsDR :: T.Text -> T.Text -> DataReplaceable
 createStateParamsDR event cst =
     DR $ \case "" -> sformat ("|(@cast,"%stext%","%stext%",data) ") event cst
@@ -135,15 +139,15 @@ compileExpr gen (ExtCh exprs) = do
         aux (_ps, _cs, _ns) gen (Seq (h:tl)) = do
             -- use the next state from the external choice, but them backup the most recent one (ns')
             let Generator {ns=ns'} = gen
-            (g, msg, next_state) <- compileEvent gen{ps=_ps, cs=_cs, ns=_ns} h
-            let g' = appendIndentedCur (appendIndentedText g{ns=ns', seed=ns'} ("_=" <> (getValDR msg) <> ";\n")) $ DR $ \_ -> (getValDR next_state) <> "=> "
+            (g, msg, next_state) <- compileEvent gen{ps=_ps, cs=_cs, ns=_ns, tmp_params=[]} h
+            let g' = appendCur (appendIndentedText g{ns=ns', seed=ns'} ("_=" <> (getValDR msg) <> ";\n")) $ DR $ \_ -> (getValDR next_state) <> "=> "
             compileExpr g' (Seq tl)
 
 compileExpr gen (Seq seq) = do
     foldlM compileExpr gen seq
 compileExpr gen (event @ (Event _ _)) = do
     (g, msg, next_state) <- compileEvent gen event
-    return $ appendIndentedCur (appendCur g $ appendToDR msg "\n") $ appendToDR next_state "=> "
+    return $ appendCur (appendCur g $ appendToDR msg "\n") $ appendToDR next_state "=> "
 compileExpr gen (V "STOP") = do
     return $ appendCur gen $ textToDR "{@next_state, @stop, data}\n"
 compileExpr gen (V "SKIP") = do
@@ -154,43 +158,60 @@ compileExpr gen (L l) = do
     s <- compilePatt (PatL l)
     return $ appendCur gen $ textToDR s
 compileExpr gen expr =
-    return $ appendIndentedCur gen (textToDR $ T.show expr)
+    return $ appendCur gen (textToDR $ T.show expr)
 
 compileEvent :: Monad m => Generator -> Expression -> m (Generator, DataReplaceable, DataReplaceable)
-compileEvent gen (Event expr fields) = do
+compileEvent gen (Event expr params) = do
     let g = onNextState gen
-    pTraceShowM (expr, getStates g)
     let ng = newGen
     chan <- compileExpr ng expr
-    fields' <- mapM (compileInOut ng) fields
+    params' <- mapM (compileInOut ng) params
+    let cur_params = paramsIntoList params'
     let cn = getValDR $ fst $ takeCur chan
     let pst = getStateText ps g
     let cst = getStateText cs g
     let nst = getStateText ns g
     let event = sformat ("{@" %stext% ", " %stext% "}") cn pst
-    let (args, branch) = aux fields' cn pst cst
-    -- let (recv, send) = unzip fields'
-    return (g, args, branch)
-    -- if all isNothing recv
-    -- then
-    -- else
-    --     return $ appendIndentedCur gen $ sformat ("{" % stext % "} = env(@" % stext % ", {" % stext % "});\n")
-    --         (T.intercalate ", " $ map (\case
-    --             Just p -> p
-    --             Nothing -> "{}") recv)
-    --         (cur chan) (T.intercalate ", " send)
+    let (channel_call, branch) = aux params' cn pst cst
+    let channel_call' = case tmp_params g of
+            [] -> channel_call
+            _  -> dataWithParams channel_call (tmp_params g) "="
+    let ps = paramsIntoList params'
+    pTraceShowM ((getValDR channel_call'), (getValDR branch), tmp_params g, ps, (ps \\ (tmp_params g)))
+    case params of
+        ((In _):_)  -> -- Receiving from a channel
+            return (g { tmp_params = paramsIntoList params' }, channel_call', branch)
+        ((Out _):_) -> -- Sending valus to a channel
+            let ps = paramsIntoList params' in
+            let g' = case filterNames ps of
+                    (_:_) ->
+                            let (prev_branch, g') = takeCur g in
+                            let req_data = dataWithParams prev_branch (ps \\ (tmp_params g)) ":" in
+                            appendCur g' req_data
+                    []  -> g
+            in return (g' { tmp_params = [] }, channel_call', branch)
+        _ -> -- Event
+            return (g { tmp_params = [] }, channel_call', branch)
     where
         aux [] cn pst cst =
             let event = sformat ("{@" %stext% ", " %stext% "}") cn pst in
-            (createChannelCallDR "csp_channel:event" cn pst cst, createStateParamsDR event cst)
+            (createChannelCallDR "csp_channel:event" cn pst cst "", createStateParamsDR event cst)
         aux (params @ ((Nothing, _):_)) cn pst cst =
-            let fn_call = "csp_channel:send" in 
+            let fn_call = "csp_channel:send" in
             let event = sformat ("{@"%stext%","%stext%"}") cn pst in
-            (createChannelCallDR fn_call cn pst cst, createStateParamsDR event cst)
+            (createChannelCallDR fn_call cn pst cst ("{"<>(T.intercalate "," (paramsIntoList params))<>"},"), createStateParamsDR event cst)
         aux (params @ ((Just _, _):_)) cn pst cst =
             let fn_call = "csp_channel:recv" in
             let event = sformat ("{@"%stext%","%stext%",{"%stext%"}}") cn pst (T.intercalate "," (paramsIntoList params)) in
-            (createChannelCallDR fn_call cn pst cst, createStateParamsDR event cst)
+            (createChannelCallDR fn_call cn pst cst "", createStateParamsDR event cst)
+
+        filterNames :: [T.Text] -> [T.Text]
+        filterNames params = filter (\x -> x =~ ("^[a-zA-Z][a-zA-Z0-9_]*$" :: String)) params
+
+        dataWithParams dr [] op = dr
+        dataWithParams (DR f) params op =
+            let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
+            DR $ \_ -> f ("data <- #{" <> values <> "}")
 
         paramsIntoList :: [(Maybe T.Text, T.Text)] -> [T.Text]
         paramsIntoList [] = []
