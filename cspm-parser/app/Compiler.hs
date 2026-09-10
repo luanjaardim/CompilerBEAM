@@ -2,7 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 module Compiler (compileDefinitions) where
 
-import Visitor (Definitions (Proc), Expression (..), Pattern (PatL, PatV))
+import Visitor (Definitions (Proc, Func, Clause), Expression (..), Pattern (PatL, PatV))
 import qualified Data.ByteString.Char8 as B
 import Util.MonadicPrettyPrint (render, prettyPrint)
 import Text.Pretty.Simple (pShow)
@@ -67,6 +67,10 @@ consumeCur :: Generator -> Generator
 consumeCur (gen @ (Generator {cur=(DR f):tl,text=t})) = gen { cur = tl, text = t <> (fromText $ f "") }
 consumeCur gen = gen
 
+consumeCurWithArg :: Generator -> T.Text -> Generator
+consumeCurWithArg (gen @ (Generator {cur=(DR f):tl,text=t})) arg = gen { cur = tl, text = t <> (fromText $ f arg) }
+consumeCurWithArg gen _ = gen
+
 consumeIndentedCur :: Generator -> Generator
 consumeIndentedCur (gen @ (Generator {cur=(DR f):tl,text=t, indent=i})) = gen { cur = tl, text = t <> (fromText $ i <> (f "")) }
 consumeIndentedCur gen = gen
@@ -102,30 +106,42 @@ compileDefinitions defs = do
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
     pn <- compilePatt pat -- proc_name
-    let hasArrow = case expr of
+    let gen' = appendCur (consumeCurWithArg gen{cur=[prefixDR]} pn) $ DR $ \arrow -> "(@cast,@start,@"<>pn<>"0,data) "<>arrow
+    g <- compileBody (clearStates gen') pn [] expr
+    return $ appendText g suffixHandleEvent
+compileDefs gen (Func mn defs) = do
+    let gen' = clearStates $ appendCur gen{mod_name=decodeUtf8 mn} prefixDR
+    g <- foldlM (\g d -> compileDefs g{ps=ps gen',cs=cs gen'} d) gen' defs
+    return $ appendText g suffixHandleEvent
+compileDefs gen (Clause params body) = do
+    params' <- mapM (\x -> mapM compilePatt x) params
+    -- WARNING: At the moment only one list of params is accepted
+    let p = head params'
+    let vars = filterNames p
+    let branch = DR $ \arrow -> sformat (stext%"(@cast,{@start,{"%stext%"}},@"%stext%"0,data) "%stext)
+           (case cur gen of 
+                ((DR f):_) -> f (mod_name gen)
+                [] -> "|"
+           ) (T.intercalate "," p) (mod_name gen) arrow
+    compileBody gen{cur=[branch], tmp_params=vars} (mod_name gen) p body
+compileDefs gen def = return gen
+
+compileBody :: Monad m => Generator -> T.Text -> [T.Text] -> Expression -> m Generator
+compileBody gen mn params body = do
+    let gen' = gen{mod_name = mn}
+    let hasArrow = case body of
             Seq _ -> "=> "
             _ -> ""
-    let gen' = clearStates $ gen{mod_name=pn}
-    let gen'' = appendText gen' $ sformat ("mod " % stext % "(@gen_statem) {\n\
-      \\tpub fn create = (args) => gen_statem:start_link(@"%stext%", args, [])\n\
-      \\tpub fn enter = (args) => gen_statem:enter_loop(@"%stext%", [], @"%stext%"0, #{@queue = #{}}, [{@next_event, @cast, @start}])\n\
-      \\tpub fn callback_mode = () => @handle_event_function\n\
-      \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@queue = #{}}}\n\
-      \\tpub fn handle_event =\n\t(@cast,@start,"%stext%",data) "%stext) pn pn pn pn pn (getStateText ps gen') hasArrow
-    gen''' <- consumeAllCur <$> compileExpr (increaseTab $ gen'') expr
-    return $ appendText gen'''
-        "\n\t|(event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) =>\n\
-        \\t\t  {@keep_state, csp_utils:add_to_state_queue(original_state, msg, data)}\n}\n"
--- \\t\t  _=io:format(\"Received the event ('~p', '~p') of type '~p' at state '~p'.\\n\", [event, original_state, event_type, wrong_state]);\n\
-compileDefs gen def = return gen
+    consumeAllCur <$> compileExpr (increaseTab $ consumeCurWithArg gen' hasArrow) body
 
 compileExpr :: Monad m => Generator -> Expression -> m Generator
 compileExpr gen (ExtCh exprs) = do
     let pst = getStateText ps gen
     let cst = getStateText cs gen
     let nst = getStateText ns gen
-    g <- foldlM (aux (ps gen, cs gen, ns gen)) (
-        foldl appendIndentedText (appendText gen "{\n") [
+    let gen' = consumeAllCur gen
+    g <- foldlM (aux (ps gen', cs gen', ns gen')) (
+        foldl appendIndentedText (appendText gen' "{\n") [
             "#{@queue: q} = data;\n",
             "match q\n",
             (sformat
@@ -186,12 +202,12 @@ compileEvent gen (Event expr params) = do
             return (g { tmp_params = paramsIntoList params' }, channel_call', branch)
         ((Out _):_) -> -- Sending valus to a channel
             let ps = paramsIntoList params' in
-            let g' = case filterNames ps of
-                    (_:_) ->
+            let g' = case (filterNames ps, cur g) of
+                    ((_:_), (_:_)) ->
                             let (prev_branch, g') = takeCur g in
                             let req_data = dataWithParams prev_branch (ps \\ (tmp_params g)) ":" in
                             appendCur g' req_data
-                    []  -> g
+                    (_,_)  -> g
             in return (g' { tmp_params = [] }, channel_call', branch)
         _ -> -- Event
             return (g { tmp_params = [] }, channel_call', branch)
@@ -208,10 +224,10 @@ compileEvent gen (Event expr params) = do
             let event = sformat ("{@"%stext%","%stext%",{"%stext%"}}") cn pst (T.intercalate "," (paramsIntoList params)) in
             (createChannelCallDR fn_call cn pst cst "", createStateParamsDR event cst)
 
-        filterNames :: [T.Text] -> [T.Text]
-        filterNames params = filter (\x -> x =~ ("^[a-zA-Z][a-zA-Z0-9_]*$" :: String)) params
-
         dataWithParams dr [] op = dr
+        dataWithParams (DR f) params (op @ "=") =
+            let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
+            DR $ \_ -> f ("data#{" <> values <> "}")
         dataWithParams (DR f) params op =
             let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
             DR $ \_ -> f ("data <- #{" <> values <> "}")
@@ -233,6 +249,21 @@ compileEvent _ _ = error "Not expected"
 compilePatt :: Monad m => Pattern -> m T.Text
 compilePatt (PatL l) = return $ literalToText l
 compilePatt (PatV s) = return $ decodeUtf8 s
+
+filterNames :: [T.Text] -> [T.Text]
+filterNames params = filter (\x -> x =~ ("^[a-zA-Z][a-zA-Z0-9_]*$" :: String)) params
+
+prefixDR = DR $ \mn ->
+    sformat ("mod " % stext % "(@gen_statem) {\n\
+          \\tpub fn create = (args) => gen_statem:start_link(@"%stext%", args, [])\n\
+          \\tpub fn enter = (args) => gen_statem:enter_loop(@"%stext%", [], @"%stext%"0, #{@queue = #{}}, [{@next_event, @cast, @start}])\n\
+          \\tpub fn callback_mode = () => @handle_event_function\n\
+          \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@queue = #{}}}\n\
+          \\tpub fn handle_event =\n\t") mn mn mn mn mn
+
+suffixHandleEvent =
+        "\n\t|(event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) =>\n\
+        \\t\t  {@keep_state, csp_utils:add_to_state_queue(original_state, msg, data)}\n}\n"
 
 literalToText :: Literal -> T.Text
 literalToText lit = case lit of
