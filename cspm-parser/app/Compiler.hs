@@ -101,16 +101,17 @@ compileDefinitions defs = do
 
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
-    proc_name <- compilePatt pat
+    pn <- compilePatt pat -- proc_name
     let hasArrow = case expr of
             Seq _ -> "=> "
             _ -> ""
-    let gen' = clearStates $ gen{mod_name=proc_name}
+    let gen' = clearStates $ gen{mod_name=pn}
     let gen'' = appendText gen' $ sformat ("mod " % stext % "(@gen_statem) {\n\
-      \\tpub fn create = (args) => gen_statem:start_link(@" % stext % ", args, [])\n\
+      \\tpub fn create = (args) => gen_statem:start_link(@"%stext%", args, [])\n\
+      \\tpub fn enter = (args) => gen_statem:enter_loop(@"%stext%", [], @"%stext%"0, #{@queue = #{}}, [{@next_event, @cast, @start}])\n\
       \\tpub fn callback_mode = () => @handle_event_function\n\
       \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@queue = #{}}}\n\
-      \\tpub fn handle_event =\n\t(@cast,@start,"%stext%",data) "%stext) proc_name proc_name proc_name (getStateText ps gen') hasArrow
+      \\tpub fn handle_event =\n\t(@cast,@start,"%stext%",data) "%stext) pn pn pn pn pn (getStateText ps gen') hasArrow
     gen''' <- consumeAllCur <$> compileExpr (increaseTab $ gen'') expr
     return $ appendText gen'''
         "\n\t|(event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) =>\n\
@@ -152,8 +153,11 @@ compileExpr gen (V "STOP") = do
     return $ appendCur gen $ textToDR "{@next_state, @stop, data}\n"
 compileExpr gen (V "SKIP") = do
     return $ appendCur gen $ textToDR "{@next_state, @skip, data}\n"
-compileExpr gen (V s) = do
-    return $ appendCur gen (textToDR $ decodeUtf8 s)
+compileExpr (gen @ Generator {mod_name=mn}) (V s) = do
+    let s' = decodeUtf8 s
+    return $ appendCur gen (textToDR (if mn == s' then 
+            sformat ("{@next_state,@"%stext%"0,data,[{@next_event,@cast,@start}]}\n") mn
+        else s'))
 compileExpr gen (L l) = do
     s <- compilePatt (PatL l)
     return $ appendCur gen $ textToDR s
@@ -177,7 +181,6 @@ compileEvent gen (Event expr params) = do
             [] -> channel_call
             _  -> dataWithParams channel_call (tmp_params g) "="
     let ps = paramsIntoList params'
-    pTraceShowM ((getValDR channel_call'), (getValDR branch), tmp_params g, ps, (ps \\ (tmp_params g)))
     case params of
         ((In _):_)  -> -- Receiving from a channel
             return (g { tmp_params = paramsIntoList params' }, channel_call', branch)
