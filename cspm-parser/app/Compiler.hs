@@ -35,7 +35,6 @@ appendToDR (DR f) s = DR (\x -> (f x) <> s)
 -- Generator and related functions
 data Generator = Generator {
     text :: Builder, -- The compiled text accumulator
-    indent :: T.Text, -- Indentation helper
     cur :: [DataReplaceable], -- Temporary texts to help formatting at appending 'text'
     mod_name :: T.Text, -- The name of the current module
     tmp_params :: [T.Text],
@@ -45,7 +44,7 @@ data Generator = Generator {
     seed :: Int -- State generator
 }
     deriving (Show)
-newGen = Generator {text="", indent="", cur=[], tmp_params=[], mod_name = "", ps = 0, cs = 0, ns = 1, seed = 1}
+newGen = Generator {text="", cur=[], tmp_params=[], mod_name = "", ps = 0, cs = 0, ns = 1, seed = 1}
 
 clearStates :: Generator -> Generator
 clearStates gen = gen{ps = 0, cs = 0, ns = 1, seed = 1}
@@ -56,9 +55,6 @@ onNextState gen @ Generator {ps=_ps, cs=_cs, ns=_ns, seed=_seed} = gen{ps=_cs, c
 
 appendText :: Generator -> T.Text -> Generator
 appendText gen s = gen { text = text gen <> fromText s }
-
-appendIndentedText :: Generator -> T.Text -> Generator
-appendIndentedText gen s = gen { text = text gen <> (fromText $ indent gen) <> (fromText s) }
 
 appendCur :: Generator -> DataReplaceable -> Generator
 appendCur gen s = gen { cur = s : (cur gen) }
@@ -71,10 +67,6 @@ consumeCurWithArg :: Generator -> T.Text -> Generator
 consumeCurWithArg (gen @ (Generator {cur=(DR f):tl,text=t})) arg = gen { cur = tl, text = t <> (fromText $ f arg) }
 consumeCurWithArg gen _ = gen
 
-consumeIndentedCur :: Generator -> Generator
-consumeIndentedCur (gen @ (Generator {cur=(DR f):tl,text=t, indent=i})) = gen { cur = tl, text = t <> (fromText $ i <> (f "")) }
-consumeIndentedCur gen = gen
-
 consumeAllCur :: Generator -> Generator
 consumeAllCur (gen @ (Generator {cur=l,text=t})) = gen { cur = [], text = t <> (fromText $ T.concat $ map (\(DR f) -> f "") $ reverse l) }
 
@@ -86,31 +78,26 @@ createChannelCallDR fn cn pst cst d =
                x  -> sformat (stext%"(@"%stext%","%stext%","%stext%","%stext%"{@next_state,"%stext%","%stext%"})") fn cn pst cst d cst x
 createStateParamsDR :: T.Text -> T.Text -> DataReplaceable
 createStateParamsDR event cst =
-    DR $ \case "" -> sformat ("|(@cast,"%stext%","%stext%",data) ") event cst
-               x  -> sformat ("|(@cast,"%stext%","%stext%","%stext%") ") event cst x
-
-increaseTab :: Generator -> Generator
-increaseTab gen = gen { indent = "\t" <> indent gen }
-
-decreaseTab :: Generator -> Generator
-decreaseTab gen = gen { indent = T.tail $ indent gen }
+    DR $ \case "" -> sformat ("\t|(@cast,"%stext%","%stext%",data) ") event cst
+               x  -> sformat ("\t|(@cast,"%stext%","%stext%","%stext%") ") event cst x
 
 getStateText :: (Generator -> Int) -> Generator -> T.Text
 getStateText f gen = "@" <> mod_name gen <> (T.pack $ show $ f gen)
 
 compileDefinitions :: Monad m => [Definitions] -> m String
 compileDefinitions defs = do
-    g <- foldlM compileDefs (newGen { indent="" }) defs
+    g <- foldlM compileDefs newGen defs
     return $ T.unpack $ toStrict $ toLazyText $ text g
 
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
     pn <- compilePatt pat -- proc_name
-    let gen' = appendCur (consumeCurWithArg gen{cur=[prefixDR]} pn) $ DR $ \arrow -> "(@cast,@start,@"<>pn<>"0,data) "<>arrow
+    let gen' = appendCur (consumeCurWithArg gen{cur=[prefixDR pn]} "@start") $ DR $ \arrow -> "(@cast,@start,@"<>pn<>"0,data) "<>arrow
     g <- compileBody (clearStates gen') pn [] expr
     return $ appendText g suffixHandleEvent
 compileDefs gen (Func mn defs) = do
-    let gen' = clearStates $ appendCur gen{mod_name=decodeUtf8 mn} prefixDR
+    let mn' = decodeUtf8 mn
+    let gen' = clearStates $ appendCur gen{mod_name=mn'} $ prefixDR mn'
     g <- foldlM (\g d -> compileDefs g{ps=ps gen',cs=cs gen'} d) gen' defs
     return $ appendText g suffixHandleEvent
 compileDefs gen (Clause params body) = do
@@ -118,11 +105,12 @@ compileDefs gen (Clause params body) = do
     -- WARNING: At the moment only one list of params is accepted
     let p = head params'
     let vars = filterNames p
-    let branch = DR $ \arrow -> sformat (stext%"(@cast,{@start,{"%stext%"}},@"%stext%"0,data) "%stext)
-           (case cur gen of 
-                ((DR f):_) -> f (mod_name gen)
-                [] -> "|"
-           ) (T.intercalate "," p) (mod_name gen) arrow
+    let event_params = "{" <> (T.intercalate "," p) <> "}"
+    let branch = DR $ \arrow -> sformat (stext%"(@cast,{@start,"%stext%"},@"%stext%"0,data) "%stext)
+           (case cur gen of
+                ((DR f):_) -> f ("{@start,args}")
+                [] -> "\t|"
+           ) event_params (mod_name gen) arrow
     compileBody gen{cur=[branch], tmp_params=vars} (mod_name gen) p body
 compileDefs gen def = return gen
 
@@ -132,7 +120,7 @@ compileBody gen mn params body = do
     let hasArrow = case body of
             Seq _ -> "=> "
             _ -> ""
-    consumeAllCur <$> compileExpr (increaseTab $ consumeCurWithArg gen' hasArrow) body
+    consumeAllCur <$> compileExpr (consumeCurWithArg gen' hasArrow) body
 
 compileExpr :: Monad m => Generator -> Expression -> m Generator
 compileExpr gen (ExtCh exprs) = do
@@ -141,23 +129,23 @@ compileExpr gen (ExtCh exprs) = do
     let nst = getStateText ns gen
     let gen' = consumeAllCur gen
     g <- foldlM (aux (ps gen', cs gen', ns gen')) (
-        foldl appendIndentedText (appendText gen' "{\n") [
-            "#{@queue: q} = data;\n",
-            "match q\n",
+        foldl appendText (appendText gen' "{\n") [
+            "\t\t#{@queue: q} = data;\n",
+            "\t\tmatch q\n",
             (sformat
-                ("| (#{"%stext%": h :: tl}) => {@next_state,"%stext%", data#{@queue = q#{"%stext%" = tl}}, [{@next_event, @cast, h}]}\n")
+                ("\t\t| (#{"%stext%": h :: tl}) => {@next_state,"%stext%", data#{@queue = q#{"%stext%" = tl}}, [{@next_event, @cast, h}]}\n")
                 pst cst pst),
-            "|(_) {\n"]) exprs
+            "\t\t|(_) {\n"]) exprs
     return $ consumeAllCur $
-        appendIndentedText (appendIndentedText g "}\n") (
-            sformat ("}|(@cast, event <- {_,"%stext%"},"%stext%",data) => {@next_state,"%stext%", data, [{@next_event, @cast, event}]}\n")
+        appendText (appendText g "\t\t}\n") (
+            sformat ("\t}|(@cast, event <- {_,"%stext%"},"%stext%",data) => {@next_state,"%stext%", data, [{@next_event, @cast, event}]}\n")
                 pst pst nst)
     where
         aux (_ps, _cs, _ns) gen (Seq (h:tl)) = do
             -- use the next state from the external choice, but them backup the most recent one (ns')
             let Generator {ns=ns'} = gen
             (g, msg, next_state) <- compileEvent gen{ps=_ps, cs=_cs, ns=_ns, tmp_params=[]} h
-            let g' = appendCur (appendIndentedText g{ns=ns', seed=ns'} ("_=" <> (getValDR msg) <> ";\n")) $ DR $ \_ -> (getValDR next_state) <> "=> "
+            let g' = appendCur (appendText g{ns=ns', seed=ns'} ("\t\t\t_=" <> (getValDR msg) <> ";\n")) $ DR $ \_ -> (getValDR next_state) <> "=> "
             compileExpr g' (Seq tl)
 
 compileExpr gen (Seq seq) = do
@@ -225,9 +213,11 @@ compileEvent gen (Event expr params) = do
             (createChannelCallDR fn_call cn pst cst "", createStateParamsDR event cst)
 
         dataWithParams dr [] op = dr
-        dataWithParams (DR f) params (op @ "=") =
+        dataWithParams (dr @ (DR f)) params (op @ "=") =
             let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
-            DR $ \_ -> f ("data#{" <> values <> "}")
+            case values of
+                    "" -> dr
+                    _ -> DR $ \_ -> f ("data#{" <> values <> "}")
         dataWithParams (DR f) params op =
             let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
             DR $ \_ -> f ("data <- #{" <> values <> "}")
@@ -253,16 +243,15 @@ compilePatt (PatV s) = return $ decodeUtf8 s
 filterNames :: [T.Text] -> [T.Text]
 filterNames params = filter (\x -> x =~ ("^[a-zA-Z][a-zA-Z0-9_]*$" :: String)) params
 
-prefixDR = DR $ \mn ->
-    sformat ("mod " % stext % "(@gen_statem) {\n\
+prefixDR mod_name = DR $ \event -> sformat ("mod " % stext % "(@gen_statem) {\n\
           \\tpub fn create = (args) => gen_statem:start_link(@"%stext%", args, [])\n\
-          \\tpub fn enter = (args) => gen_statem:enter_loop(@"%stext%", [], @"%stext%"0, #{@queue = #{}}, [{@next_event, @cast, @start}])\n\
+          \\tpub fn enter = (args) => gen_statem:enter_loop(@"%stext%", [], @"%stext%"0, #{@queue = #{}}, [{@next_event, @cast, "%stext%"}])\n\
           \\tpub fn callback_mode = () => @handle_event_function\n\
           \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@queue = #{}}}\n\
-          \\tpub fn handle_event =\n\t") mn mn mn mn mn
+          \\tpub fn handle_event =\n\t") mod_name mod_name mod_name mod_name event mod_name
 
 suffixHandleEvent =
-        "\n\t|(event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) =>\n\
+        "\t|(event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) =>\n\
         \\t\t  {@keep_state, csp_utils:add_to_state_queue(original_state, msg, data)}\n}\n"
 
 literalToText :: Literal -> T.Text
