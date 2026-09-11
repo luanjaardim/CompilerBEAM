@@ -118,8 +118,8 @@ compileBody :: Monad m => Generator -> T.Text -> [T.Text] -> Expression -> m Gen
 compileBody gen mn params body = do
     let gen' = gen{mod_name = mn}
     let hasArrow = case body of
-            Seq _ -> "=> "
-            _ -> ""
+            ExtCh _ -> ""
+            _ -> "=> "
     consumeAllCur <$> compileExpr (consumeCurWithArg gen' hasArrow) body
 
 compileExpr :: Monad m => Generator -> Expression -> m Generator
@@ -153,15 +153,22 @@ compileExpr gen (Seq seq) = do
 compileExpr gen (event @ (Event _ _)) = do
     (g, msg, next_state) <- compileEvent gen event
     return $ appendCur (appendCur g $ appendToDR msg "\n") $ appendToDR next_state "=> "
-compileExpr gen (V "STOP") = do
+compileExpr gen (FuncApp (V fn_name) args) = do
+    gen_args <- foldlM compileExpr gen{cur=[]} args
+    let args = map (\(DR f) -> f "") $ reverse $ cur gen_args
+    let args_from_data = nub $ filterNames args
+    let gen' = case cur gen of
+            (h:tl) -> gen{cur=(dataWithParams h args_from_data ":"):tl}
+            [] -> gen
+    return $ appendCur gen' $ textToDR $ (decodeUtf8 fn_name) <> ":enter({"<> (T.intercalate "," args)<> "})\n"
+compileExpr gen (ProcCall (V "STOP")) = do
     return $ appendCur gen $ textToDR "{@next_state, @stop, data}\n"
-compileExpr gen (V "SKIP") = do
+compileExpr gen (ProcCall (V "SKIP")) = do
     return $ appendCur gen $ textToDR "{@next_state, @skip, data}\n"
-compileExpr (gen @ Generator {mod_name=mn}) (V s) = do
-    let s' = decodeUtf8 s
-    return $ appendCur gen (textToDR (if mn == s' then 
-            sformat ("{@next_state,@"%stext%"0,data,[{@next_event,@cast,@start}]}\n") mn
-        else s'))
+compileExpr gen (ProcCall (V n)) = do
+    return $ appendCur gen $ textToDR $ (decodeUtf8 n) <> ":enter(@none)\n"
+compileExpr gen (V s) = do
+    return $ appendCur gen $ textToDR $ decodeUtf8 s
 compileExpr gen (L l) = do
     s <- compilePatt (PatL l)
     return $ appendCur gen $ textToDR s
@@ -212,16 +219,6 @@ compileEvent gen (Event expr params) = do
             let event = sformat ("{@"%stext%","%stext%",{"%stext%"}}") cn pst (T.intercalate "," (paramsIntoList params)) in
             (createChannelCallDR fn_call cn pst cst "", createStateParamsDR event cst)
 
-        dataWithParams dr [] op = dr
-        dataWithParams (dr @ (DR f)) params (op @ "=") =
-            let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
-            case values of
-                    "" -> dr
-                    _ -> DR $ \_ -> f ("data#{" <> values <> "}")
-        dataWithParams (DR f) params op =
-            let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
-            DR $ \_ -> f ("data <- #{" <> values <> "}")
-
         paramsIntoList :: [(Maybe T.Text, T.Text)] -> [T.Text]
         paramsIntoList [] = []
         paramsIntoList ((Nothing, val):tl) = val : (paramsIntoList tl)
@@ -242,6 +239,17 @@ compilePatt (PatV s) = return $ decodeUtf8 s
 
 filterNames :: [T.Text] -> [T.Text]
 filterNames params = filter (\x -> x =~ ("^[a-zA-Z][a-zA-Z0-9_]*$" :: String)) params
+
+dataWithParams dr [] op = dr
+dataWithParams (dr @ (DR f)) params (op @ "=") =
+    let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
+    case values of
+            "" -> dr
+            _ -> DR $ \_ -> f ("data#{" <> values <> "}")
+dataWithParams (DR f) params op =
+    let values = T.intercalate "," $ map (\y -> "@"<>y<>op<>y) $ nub $ filterNames params in
+    DR $ \_ -> f ("data <- #{" <> values <> "}")
+
 
 prefixDR mod_name = DR $ \event -> sformat ("mod " % stext % "(@gen_statem) {\n\
           \\tpub fn create = (args) => gen_statem:start_link(@"%stext%", args, [])\n\

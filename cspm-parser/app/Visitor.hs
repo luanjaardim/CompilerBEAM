@@ -13,7 +13,7 @@ type Id = UnRenamedName
 data Definitions = Chan [B.ByteString] Int | Proc Pattern Expression | Func B.ByteString [Definitions] | Clause [[Pattern]] Expression | Assr String
     deriving (Show)
 data Expression = Paralel Expression Expression | DotOperator [Expression] | L Literal | V B.ByteString | Seq [Expression] | ExtCh [Expression]
-                  | Event Expression [Expression] | In Pattern | Out Expression | Generic String
+                  | Event Expression [Expression] | In Pattern | Out Expression | ProcCall Expression | FuncApp Expression [Expression] | Generic String
     deriving (Show)
 data Pattern = PatL Literal | PatV B.ByteString
     deriving (Show)
@@ -54,6 +54,9 @@ visitPatBind :: Monad m
              -> Exp Id
              -> Maybe (AnSTypeScheme Id)
              -> m Definitions
+visitPatBind pat (Var {varIdentity=n}) scheme = do
+    pat' <- visitPattern pat
+    return $ Proc pat' $ ProcCall (Visitor.V $ extractName n)
 visitPatBind pat expr scheme = do
     pat' <- visitPattern pat
     expr' <- visitExp expr
@@ -122,7 +125,8 @@ visitExp Prefix {prefixChannel=pC, prefixFields=pF, prefixProcess=pP} = do
     pP' <- visitExpUnAnnotate pP
     return $ case pP' of
         Seq l -> Seq (Event pC' pF' : l)
-        res -> Seq [Event pC' pF', pP']
+        FuncApp _ _ -> Seq [Event pC' pF', pP']
+        res -> Seq [Event pC' pF', ProcCall pP']
 visitExp ExternalChoice {extChoiceLeftProcess=l, extChoiceRightProcess=r} = do
     l' <- visitExpUnAnnotate l
     r' <- visitExpUnAnnotate r
@@ -142,7 +146,7 @@ visitExp Set {setItems=set} = do
 visitExp App {appFunction=fun, appArguments=args} = do
     fun' <- visitExpUnAnnotate fun
     args' <- mapM (visitExp . unAnnotate) args
-    return $ Generic "app"
+    return $ FuncApp fun' args'
 visitExp SetEnumFromTo {setEnumFromToLowerBound=lower, setEnumFromToUpperBound=upper} = do
     return $ Generic "from to"
 visitExp BooleanUnaryOp {unaryBooleanOpOperator=op, unaryBooleanExpression=expr} = do
