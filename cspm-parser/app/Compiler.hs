@@ -92,8 +92,8 @@ compileDefinitions defs = do
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
     pn <- compilePatt pat -- proc_name
-    let gen' = appendCur (consumeCurWithArg gen{cur=[prefixDR pn]} "@start") $ DR $ \arrow -> "(@cast,@start,@"<>pn<>"0,data) "<>arrow
-    g <- compileBody (clearStates gen') pn [] expr
+    let gen' = appendCur (consumeCurWithArg gen{cur=[prefixDR pn]} "args") $ DR $ \arrow -> "(@cast,@start,@"<>pn<>"0,data) "<>arrow
+    g <- compileBody (clearStates gen'{tmp_params=[]}) pn expr
     return $ appendText g suffixHandleEvent
 compileDefs gen (Func mn defs) = do
     let mn' = decodeUtf8 mn
@@ -111,14 +111,15 @@ compileDefs gen (Clause params body) = do
                 ((DR f):_) -> f ("{@start,args}")
                 [] -> "\t|"
            ) event_params (mod_name gen) arrow
-    compileBody gen{cur=[branch], tmp_params=vars} (mod_name gen) p body
+    compileBody gen{cur=[branch], tmp_params=vars} (mod_name gen) body
 compileDefs gen def = return gen
 
-compileBody :: Monad m => Generator -> T.Text -> [T.Text] -> Expression -> m Generator
-compileBody gen mn params body = do
+compileBody :: Monad m => Generator -> T.Text -> Expression -> m Generator
+compileBody gen mn body = do
     let gen' = gen{mod_name = mn}
     let hasArrow = case body of
             ExtCh _ -> ""
+            Paralel _ -> ""
             _ -> "=> "
     consumeAllCur <$> compileExpr (consumeCurWithArg gen' hasArrow) body
 
@@ -148,6 +149,27 @@ compileExpr gen (ExtCh exprs) = do
             let g' = appendCur (appendText g{ns=ns', seed=ns'} ("\t\t\t_=" <> (getValDR msg) <> ";\n")) $ DR $ \_ -> (getValDR next_state) <> "=> "
             compileExpr g' (Seq tl)
 
+compileExpr (gen @ Generator {mod_name=mn}) (Paralel procs) = do
+    let gen' = consumeAllCur gen
+    g <- foldlM aux (appendText gen' "{\n") procs
+    let (bodies,spawns) = sep_spawn_and_body (cur g)
+    let g' = consumeAllCur g{cur=spawns}
+    return $ consumeAllCur $ appendText g'{cur=bodies} "\t\t{@keep_state,data}\n\t}\n"
+    where 
+        aux g e = do
+            let g' = onNextState g
+            let mn = mod_name g'
+            let withSpawn = appendCur g' $ textToDR $ sformat (
+                    "\t\t_=gen_statem:cast("%stext%":create("%stext%"),@spawn);\n") mn (getStateText cs g')
+            let (DR f) = createStateParamsDR "@spawn" (getStateText cs g')
+            let tmp_g = appendCur g'{text="",cur=[]} $ DR $ \arrow -> (f "") <> arrow
+            t <- compileBody tmp_g mn e
+            return $ appendCur withSpawn{cs=cs t,ns=ns t,seed=seed t} $ textToDR $ toStrict $ toLazyText $ text t
+        sep_spawn_and_body (body:spawn:tl) =
+            let (bodies,spawns) = sep_spawn_and_body tl
+            in (body:bodies,spawn:spawns)
+        sep_spawn_and_body [] = ([],[])
+
 compileExpr gen (Seq seq) = do
     foldlM compileExpr gen seq
 compileExpr gen (event @ (Event _ _)) = do
@@ -155,18 +177,20 @@ compileExpr gen (event @ (Event _ _)) = do
     return $ appendCur (appendCur g $ appendToDR msg "\n") $ appendToDR next_state "=> "
 compileExpr gen (FuncApp (V fn_name) args) = do
     gen_args <- foldlM compileExpr gen{cur=[]} args
+    let fn = decodeUtf8 fn_name
     let args = map (\(DR f) -> f "") $ reverse $ cur gen_args
     let args_from_data = nub $ filterNames args
     let gen' = case cur gen of
             (h:tl) -> gen{cur=(dataWithParams h args_from_data ":"):tl}
             [] -> gen
-    return $ appendCur gen' $ textToDR $ (decodeUtf8 fn_name) <> ":enter({"<> (T.intercalate "," args)<> "})\n"
+    return $ appendCur gen' $ textToDR $ fn<>":enter({"<>(T.intercalate "," args)<> "},@"<>fn<>"0)\n"
 compileExpr gen (ProcCall (V "STOP")) = do
     return $ appendCur gen $ textToDR "{@next_state, @stop, data}\n"
 compileExpr gen (ProcCall (V "SKIP")) = do
     return $ appendCur gen $ textToDR "{@next_state, @skip, data}\n"
 compileExpr gen (ProcCall (V n)) = do
-    return $ appendCur gen $ textToDR $ (decodeUtf8 n) <> ":enter(@none)\n"
+    let n' = decodeUtf8 n
+    return $ appendCur gen $ textToDR $ n'<>":enter(@start,@"<>n'<>"0)\n"
 compileExpr gen (V s) = do
     return $ appendCur gen $ textToDR $ decodeUtf8 s
 compileExpr gen (L l) = do
@@ -252,11 +276,11 @@ dataWithParams (DR f) params op =
 
 
 prefixDR mod_name = DR $ \event -> sformat ("mod " % stext % "(@gen_statem) {\n\
-          \\tpub fn create = (args) => gen_statem:start_link(@"%stext%", args, [])\n\
-          \\tpub fn enter = (args) => gen_statem:enter_loop(@"%stext%", [], @"%stext%"0, #{@queue = #{}}, [{@next_event, @cast, "%stext%"}])\n\
+          \\tpub fn create = (state) => element(2, gen_statem:start_link(@"%stext%", state, []))\n\
+          \\tpub fn enter = (args,state) => gen_statem:enter_loop(@"%stext%", [], state, #{@queue = #{}}, [{@next_event, @cast, "%stext%"}])\n\
           \\tpub fn callback_mode = () => @handle_event_function\n\
-          \\tpub fn init = (args) => {@ok, @" % stext % "0, #{@queue = #{}}}\n\
-          \\tpub fn handle_event =\n\t") mod_name mod_name mod_name mod_name event mod_name
+          \\tpub fn init = (state) => {@ok, state, #{@queue = #{}}}\n\
+          \\tpub fn handle_event =\n\t") mod_name mod_name mod_name event
 
 suffixHandleEvent =
         "\t|(event_type, msg <- {event, original_state}, wrong_state, data <- #{@queue: q}) =>\n\

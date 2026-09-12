@@ -12,8 +12,9 @@ import CSPM.Syntax.Literals (Literal)
 type Id = UnRenamedName
 data Definitions = Chan [B.ByteString] Int | Proc Pattern Expression | Func B.ByteString [Definitions] | Clause [[Pattern]] Expression | Assr String
     deriving (Show)
-data Expression = Paralel Expression Expression | DotOperator [Expression] | L Literal | V B.ByteString | Seq [Expression] | ExtCh [Expression]
-                  | Event Expression [Expression] | In Pattern | Out Expression | ProcCall Expression | FuncApp Expression [Expression] | Generic String
+data Expression = Paralel [Expression] | DotOperator [Expression] | L Literal | V B.ByteString | Seq [Expression] | ExtCh [Expression]
+                  | Event Expression [Expression] | In Pattern | Out Expression | ProcCall Expression | FuncApp Expression [Expression]
+                  | Generic String
     deriving (Show)
 data Pattern = PatL Literal | PatV B.ByteString
     deriving (Show)
@@ -54,13 +55,10 @@ visitPatBind :: Monad m
              -> Exp Id
              -> Maybe (AnSTypeScheme Id)
              -> m Definitions
-visitPatBind pat (Var {varIdentity=n}) scheme = do
-    pat' <- visitPattern pat
-    return $ Proc pat' $ ProcCall (Visitor.V $ extractName n)
 visitPatBind pat expr scheme = do
     pat' <- visitPattern pat
     expr' <- visitExp expr
-    return $ Proc pat' expr'
+    return $ Proc pat' $ tryIntoProcCall expr'
 
 visitFunBind :: Monad m
              => Id
@@ -75,7 +73,7 @@ visitClause :: Monad m => Match Id -> m Definitions
 visitClause Match {matchPatterns=pats, matchRightHandSide=expr} = do
     pats' <- mapM (\x -> mapM (visitPattern . unAnnotate) x) pats
     expr' <- visitExpUnAnnotate expr
-    return $ Clause pats' expr'
+    return $ Clause pats' $ tryIntoProcCall expr'
 
 visitChannel :: Monad m
     => [Id]
@@ -125,8 +123,7 @@ visitExp Prefix {prefixChannel=pC, prefixFields=pF, prefixProcess=pP} = do
     pP' <- visitExpUnAnnotate pP
     return $ case pP' of
         Seq l -> Seq (Event pC' pF' : l)
-        FuncApp _ _ -> Seq [Event pC' pF', pP']
-        res -> Seq [Event pC' pF', ProcCall pP']
+        res -> Seq [Event pC' pF', tryIntoProcCall pP']
 visitExp ExternalChoice {extChoiceLeftProcess=l, extChoiceRightProcess=r} = do
     l' <- visitExpUnAnnotate l
     r' <- visitExpUnAnnotate r
@@ -137,9 +134,13 @@ visitExp ExternalChoice {extChoiceLeftProcess=l, extChoiceRightProcess=r} = do
         (x, y) -> ExtCh [x, y]
 visitExp Paren {parenExpression=expr} = visitExpUnAnnotate expr
 visitExp Interleave {interleaveLeftProcess=l, interleaveRightProcess=r} = do
-    l' <- visitExpUnAnnotate l
-    r' <- visitExpUnAnnotate r
-    return $ Generic "interleave"
+    l' <- tryIntoProcCall <$> visitExpUnAnnotate l
+    r' <- tryIntoProcCall <$> visitExpUnAnnotate r
+    return $ case (l', r') of
+        (Paralel ls, Paralel rs) -> Paralel $ ls ++ rs
+        (Paralel ls, some) -> Paralel $ some:ls
+        (some, Paralel rs) -> Paralel $ some:rs
+        (some, other) -> Paralel [some, other]
 visitExp Set {setItems=set} = do
     set' <- mapM visitExpUnAnnotate set
     return $ Generic "set"
@@ -159,8 +160,9 @@ visitExp Concat {concatLeftList=lhs, concatRightList=rhs} = do
 
 visitExp a = notImplemented "visitExp" a
 
-isSeq (Seq _) = True
-isSeq _ = False
+tryIntoProcCall :: Expression -> Expression
+tryIntoProcCall (e @ (Visitor.V _)) = ProcCall e
+tryIntoProcCall e = e
 
 notImplemented from x =
     let s = pShow x in
