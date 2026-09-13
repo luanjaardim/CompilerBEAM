@@ -12,9 +12,9 @@ import CSPM.Syntax.Literals (Literal)
 type Id = UnRenamedName
 data Definitions = Chan [B.ByteString] Int | Proc Pattern Expression | Func B.ByteString [Definitions] | Clause [[Pattern]] Expression | Assr String
     deriving (Show)
-data Expression = Paralel [Expression] | DotOperator [Expression] | L Literal | V B.ByteString | Seq [Expression] | ExtCh [Expression]
-                  | Event Expression [Expression] | In Pattern | Out Expression | ProcCall Expression | FuncApp Expression [Expression]
-                  | Generic String
+data Expression = Paralel [Expression] | Sync Expression Expression Expression | DotOperator [Expression] | L Literal | V B.ByteString
+                  | Seq [Expression] | ExtCh [Expression] | Event Expression [Expression] | In Pattern | Out Expression 
+                  | ProcCall Expression | FuncApp Expression [Expression] | SetElems [Expression] | Generic String
     deriving (Show)
 data Pattern = PatL Literal | PatV B.ByteString
     deriving (Show)
@@ -141,6 +141,14 @@ visitExp Interleave {interleaveLeftProcess=l, interleaveRightProcess=r} = do
         (Paralel ls, some) -> Paralel $ some:ls
         (some, Paralel rs) -> Paralel $ some:rs
         (some, other) -> Paralel [some, other]
+visitExp GenParallel {genParallelLeftProcess=l, genParallelAlphabet=alpha, genParallelRightProcess=r} = do
+    l' <- tryIntoProcCall <$> visitExpUnAnnotate l
+    r' <- tryIntoProcCall <$> visitExpUnAnnotate r
+    alpha' <- visitExpUnAnnotate alpha
+    return $ Sync l' alpha' r'
+visitExp SetEnum {setEnumItems=set} = do
+    set' <- mapM visitExpUnAnnotate set
+    return $ SetElems set'
 visitExp Set {setItems=set} = do
     set' <- mapM visitExpUnAnnotate set
     return $ Generic "set"

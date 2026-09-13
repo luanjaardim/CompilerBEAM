@@ -120,6 +120,7 @@ compileBody gen mn body = do
     let hasArrow = case body of
             ExtCh _ -> ""
             Paralel _ -> ""
+            Sync _ _ _ -> ""
             _ -> "=> "
     consumeAllCur <$> compileExpr (consumeCurWithArg gen' hasArrow) body
 
@@ -154,7 +155,7 @@ compileExpr (gen @ Generator {mod_name=mn}) (Paralel procs) = do
     g <- foldlM aux (appendText gen' "{\n") procs
     let (bodies,spawns) = sep_spawn_and_body (cur g)
     let g' = consumeAllCur g{cur=spawns}
-    return $ consumeAllCur $ appendText g'{cur=bodies} "\t\t{@keep_state,data}\n\t}\n"
+    return $ consumeAllCur $ appendText g'{cur=bodies} "\t\t{@stop,@normal,data}\n\t}\n"
     where 
         aux g e = do
             let g' = onNextState g
@@ -169,6 +170,28 @@ compileExpr (gen @ Generator {mod_name=mn}) (Paralel procs) = do
             let (bodies,spawns) = sep_spawn_and_body tl
             in (body:bodies,spawn:spawns)
         sep_spawn_and_body [] = ([],[])
+compileExpr (gen @ Generator {mod_name=mn}) (Sync l (SetElems channels) r) = do
+    let gen' = consumeAllCur gen
+    l' <- aux gen' l "l"
+    let [body_l, create_l] = map getValDR (cur l')
+    r' <- aux l'{cur=[]} r "r"
+    let [body_r, create_r] = map getValDR (cur r')
+    args <- mapM (\e -> (("@"<>) . getValDR . fst . takeCur) <$> compileExpr r'{cur=[]} e) channels
+    return $ foldl appendText r'{cur=[]} [
+        "{\n", create_l, create_r, "\t\t_=csp_channel:sync([", (T.intercalate "," args),
+        "],l,r);\n\t\t_=gen_statem:cast(l,@spawn);\n\t\t_=gen_statem:cast(r,@spawn);\n",
+        "\t\t{@stop,@normal,data}\n\t}\n", body_l, body_r
+        ]
+    where
+        aux g e name = do
+            let g' = onNextState g
+            let mn = mod_name g'
+            let withSpawn = appendCur g' $ textToDR $ sformat (
+                    "\t\t"%stext%"="%stext%":create("%stext%");\n") name mn (getStateText cs g')
+            let (DR f) = createStateParamsDR "@spawn" (getStateText cs g')
+            let tmp_g = appendCur g'{text="",cur=[]} $ DR $ \arrow -> (f "") <> arrow
+            t <- compileBody tmp_g mn e
+            return $ appendCur withSpawn{cs=cs t,ns=ns t,seed=seed t} $ textToDR $ toStrict $ toLazyText $ text t
 
 compileExpr gen (Seq seq) = do
     foldlM compileExpr gen seq
@@ -185,9 +208,9 @@ compileExpr gen (FuncApp (V fn_name) args) = do
             [] -> gen
     return $ appendCur gen' $ textToDR $ fn<>":enter({"<>(T.intercalate "," args)<> "},@"<>fn<>"0)\n"
 compileExpr gen (ProcCall (V "STOP")) = do
-    return $ appendCur gen $ textToDR "{@next_state, @stop, data}\n"
+    return $ appendCur gen $ textToDR "{@stop, @stop, data}\n"
 compileExpr gen (ProcCall (V "SKIP")) = do
-    return $ appendCur gen $ textToDR "{@next_state, @skip, data}\n"
+    return $ appendCur gen $ textToDR "{@stop, @skip, data}\n"
 compileExpr gen (ProcCall (V n)) = do
     let n' = decodeUtf8 n
     return $ appendCur gen $ textToDR $ n'<>":enter(@start,@"<>n'<>"0)\n"

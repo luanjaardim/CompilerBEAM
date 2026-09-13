@@ -21,10 +21,11 @@ parseAST fileName = do
     return ast
 
 main = do
-    files <- getArgs
-    ast <- parseAST $ head files
+    [input_file, output_file] <- getArgs
+    ast <- parseAST input_file
     -- pPrint ast
     code <- visitFile ast
     s <- compileDefinitions code
-    pPrint code
+    -- pPrint code
     putStrLn s
+    writeFile output_file s
