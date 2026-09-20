@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 module Visitor (visitFile, Id, Definitions(..), Expression(..), Pattern(..)) where
 
 import CSPM
@@ -13,8 +15,9 @@ type Id = UnRenamedName
 data Definitions = Chan [B.ByteString] Int | Proc Pattern Expression | Func B.ByteString [Definitions] | Clause [[Pattern]] Expression | Assr String
     deriving (Show)
 data Expression = Paralel [Expression] | Sync Expression Expression Expression | DotOperator [Expression] | L Literal | V B.ByteString
-                  | Seq [Expression] | ExtCh [Expression] | Event Expression [Expression] | In Pattern | Out Expression 
+                  | Seq [Expression] | ExtCh [Expression] | Intent [Expression] | Event Expression [Expression] | In Pattern | Out Expression
                   | ProcCall Expression | FuncApp Expression [Expression] | SetElems [Expression] | Generic String
+                  | BinOp BinaryMathsOp Expression Expression
     deriving (Show)
 data Pattern = PatL Literal | PatV B.ByteString
     deriving (Show)
@@ -121,9 +124,16 @@ visitExp Prefix {prefixChannel=pC, prefixFields=pF, prefixProcess=pP} = do
     pC' <- visitExpUnAnnotate pC
     pF' <- mapM (fieldIntoExpr . unAnnotate) pF
     pP' <- visitExpUnAnnotate pP
+    let intent_and_events = case pF' of
+            [] -> case pC' of
+                DotOperator (h:tl) -> [Event h $ [Intent tl]]
+                _ -> [Event pC' []]
+            l  ->
+                let (events, intents) = unzip $ map (\pF_ -> (Event pC' [pF_], pF_)) pF' in
+                (Event pC' [Intent intents]) : events
     return $ case pP' of
-        Seq l -> Seq (Event pC' pF' : l)
-        res -> Seq [Event pC' pF', tryIntoProcCall pP']
+        Seq l -> Seq (intent_and_events ++ l)
+        res -> Seq (intent_and_events ++ [tryIntoProcCall pP'])
 visitExp ExternalChoice {extChoiceLeftProcess=l, extChoiceRightProcess=r} = do
     l' <- visitExpUnAnnotate l
     r' <- visitExpUnAnnotate r
@@ -165,7 +175,10 @@ visitExp Concat {concatLeftList=lhs, concatRightList=rhs} = do
     lhs' <- visitExp (unAnnotate lhs)
     rhs' <- visitExp (unAnnotate rhs)
     return $ Generic "concat"
-
+visitExp MathsBinaryOp {mathsBinaryOpOperator=op, mathsBinaryOpLeftExpression=lhs, mathsBinaryOpRightExpression=rhs} = do
+    lhs' <- visitExp (unAnnotate lhs)
+    rhs' <- visitExp (unAnnotate rhs)
+    return $ BinOp op lhs' rhs'
 visitExp a = notImplemented "visitExp" a
 
 tryIntoProcCall :: Expression -> Expression

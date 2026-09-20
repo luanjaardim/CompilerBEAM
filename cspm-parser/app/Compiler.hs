@@ -14,6 +14,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Internal.StrictBuilder as T
 import Data.Text.Encoding (decodeUtf8)
 import CSPM.Syntax.Literals (Literal(..))
+import CSPM.Syntax.AST (BinaryMathsOp(..))
 import Control.Exception.Base (throw)
 import Formatting (sformat, (%), stext)
 import Util.HierarchicalMap (flatten)
@@ -74,8 +75,8 @@ takeCur (gen @ (Generator {cur=h:tl})) = (h, gen { cur=tl })
 
 createChannelCallDR :: T.Text -> T.Text -> T.Text -> T.Text -> T.Text -> DataReplaceable
 createChannelCallDR fn cn pst cst d =
-    DR $ \case "" -> sformat (stext%"(@"%stext%","%stext%","%stext%","%stext%"{@next_state,"%stext%",data})") fn cn pst cst d cst
-               x  -> sformat (stext%"(@"%stext%","%stext%","%stext%","%stext%"{@next_state,"%stext%","%stext%"})") fn cn pst cst d cst x
+    DR $ \case "" -> sformat (stext%"(@"%stext%","%stext%","%stext%"{@next_state,"%stext%",data})") fn cn pst d cst
+               x  -> sformat (stext%"(@"%stext%","%stext%","%stext%"{@next_state,"%stext%","%stext%"})") fn cn pst d cst x
 createStateParamsDR :: T.Text -> T.Text -> DataReplaceable
 createStateParamsDR event cst =
     DR $ \case "" -> sformat ("\t|(@cast,"%stext%","%stext%",data) ") event cst
@@ -214,6 +215,18 @@ compileExpr gen (ProcCall (V "SKIP")) = do
 compileExpr gen (ProcCall (V n)) = do
     let n' = decodeUtf8 n
     return $ appendCur gen $ textToDR $ n'<>":enter(@start,@"<>n'<>"0)\n"
+compileExpr gen (BinOp op lhs rhs) = do
+    let op' = case op of
+            Plus -> " + "
+            Minus -> " - "
+            Mod -> " % "
+            Divide -> " / "
+            Times -> " * "
+    lhs' <- compileExpr newGen lhs
+    let (l_s, g) = takeCur lhs'
+    rhs' <- compileExpr g rhs
+    let (r_s, g') = takeCur rhs'
+    return $ appendCur gen $ textToDR $ sformat (stext%op'%stext) (getValDR l_s) (getValDR r_s)
 compileExpr gen (V s) = do
     return $ appendCur gen $ textToDR $ decodeUtf8 s
 compileExpr gen (L l) = do
@@ -228,7 +241,6 @@ compileEvent gen (Event expr params) = do
     let ng = newGen
     chan <- compileExpr ng expr
     params' <- mapM (compileInOut ng) params
-    let cur_params = paramsIntoList params'
     let cn = getValDR $ fst $ takeCur chan
     let pst = getStateText ps g
     let cst = getStateText cs g
@@ -238,7 +250,6 @@ compileEvent gen (Event expr params) = do
     let channel_call' = case tmp_params g of
             [] -> channel_call
             _  -> dataWithParams channel_call (tmp_params g) "="
-    let ps = paramsIntoList params'
     case params of
         ((In _):_)  -> -- Receiving from a channel
             return (g { tmp_params = paramsIntoList params' }, channel_call', branch)
@@ -261,7 +272,11 @@ compileEvent gen (Event expr params) = do
             let fn_call = "csp_channel:send" in
             let event = sformat ("{@"%stext%","%stext%"}") cn pst in
             (createChannelCallDR fn_call cn pst cst ("{"<>(T.intercalate "," (paramsIntoList params))<>"},"), createStateParamsDR event cst)
-        aux (params @ ((Just _, _):_)) cn pst cst =
+        aux (params @ ((Just x, "@intent"):_)) cn pst cst =
+            let fn_call = "csp_channel:intent" in
+            let event = sformat ("{@intent,@"%stext%","%stext%"}") cn pst in
+            (createChannelCallDR fn_call cn pst cst (x<>","), createStateParamsDR event cst)
+        aux (params @ ((Just _, "@recv"):_)) cn pst cst =
             let fn_call = "csp_channel:recv" in
             let event = sformat ("{@"%stext%","%stext%",{"%stext%"}}") cn pst (T.intercalate "," (paramsIntoList params)) in
             (createChannelCallDR fn_call cn pst cst "", createStateParamsDR event cst)
@@ -270,6 +285,7 @@ compileEvent gen (Event expr params) = do
         paramsIntoList [] = []
         paramsIntoList ((Nothing, val):tl) = val : (paramsIntoList tl)
         paramsIntoList ((Just val, "@recv"):tl) = val : (paramsIntoList tl)
+        paramsIntoList ((Just val, "@intent"):tl) = val : (paramsIntoList tl)
 
         compileInOut :: Monad m => Generator -> Expression -> m (Maybe T.Text, T.Text)
         compileInOut gen (In p) = do
@@ -278,6 +294,15 @@ compileEvent gen (Event expr params) = do
         compileInOut gen (Out expr) = do
             expr' <- compileExpr gen expr
             return $ (Nothing, getValDR $ fst $ takeCur expr')
+        compileInOut gen (Intent intent) = do
+            texts <- mapM (
+                    \case Out _ -> return "@out"
+                          In _ -> return "@in"
+                          e -> do
+                              g <- consumeAllCur <$> compileExpr newGen e
+                              return $ toStrict $ toLazyText $ text g
+                    ) intent
+            return $ (Just $ "["<>T.intercalate "," texts<>"]", "@intent")
 compileEvent _ _ = error "Not expected"
 
 compilePatt :: Monad m => Pattern -> m T.Text
@@ -285,7 +310,10 @@ compilePatt (PatL l) = return $ literalToText l
 compilePatt (PatV s) = return $ decodeUtf8 s
 
 filterNames :: [T.Text] -> [T.Text]
-filterNames params = filter (\x -> x =~ ("^[a-zA-Z][a-zA-Z0-9_]*$" :: String)) params
+filterNames params = filter isName params
+
+isName :: T.Text -> Bool
+isName x = x =~ ("^[a-zA-Z][a-zA-Z0-9_]*$" :: String)
 
 dataWithParams dr [] op = dr
 dataWithParams (dr @ (DR f)) params (op @ "=") =
