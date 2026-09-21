@@ -93,7 +93,7 @@ compileDefinitions defs = do
 compileDefs :: Monad m => Generator -> Definitions -> m Generator
 compileDefs gen (Proc pat expr) = do
     pn <- compilePatt pat -- proc_name
-    let gen' = appendCur (consumeCurWithArg gen{cur=[prefixDR pn]} "args") $ DR $ \arrow -> "(@cast,@start,@"<>pn<>"0,data) "<>arrow
+    let gen' = appendCur (consumeCurWithArg gen{cur=[prefixDR pn]} "args") $ textToDR $ "(@cast,@start,@"<>pn<>"0,data) "
     g <- compileBody (clearStates gen'{tmp_params=[]}) pn expr
     return $ appendText g suffixHandleEvent
 compileDefs gen (Func mn defs) = do
@@ -107,11 +107,11 @@ compileDefs gen (Clause params body) = do
     let p = head params'
     let vars = filterNames p
     let event_params = "{" <> (T.intercalate "," p) <> "}"
-    let branch = DR $ \arrow -> sformat (stext%"(@cast,{@start,"%stext%"},@"%stext%"0,data) "%stext)
+    let branch = textToDR $ sformat (stext%"(@cast,{@start,"%stext%"},@"%stext%"0,data) ")
            (case cur gen of
                 ((DR f):_) -> f ("{@start,args}")
                 [] -> "\t|"
-           ) event_params (mod_name gen) arrow
+           ) event_params (mod_name gen)
     compileBody gen{cur=[branch], tmp_params=vars} (mod_name gen) body
 compileDefs gen def = return gen
 
@@ -123,7 +123,8 @@ compileBody gen mn body = do
             Paralel _ -> ""
             Sync _ _ _ -> ""
             _ -> "=> "
-    consumeAllCur <$> compileExpr (consumeCurWithArg gen' hasArrow) body
+    let (dr,g) = takeCur gen'
+    consumeAllCur <$> compileExpr (appendCur g $ appendToDR dr hasArrow) body
 
 compileExpr :: Monad m => Generator -> Expression -> m Generator
 compileExpr gen (ExtCh exprs) = do
@@ -157,14 +158,18 @@ compileExpr (gen @ Generator {mod_name=mn}) (Paralel procs) = do
     let (bodies,spawns) = sep_spawn_and_body (cur g)
     let g' = consumeAllCur g{cur=spawns}
     return $ consumeAllCur $ appendText g'{cur=bodies} "\t\t{@stop,@normal,data}\n\t}\n"
-    where 
+    where
         aux g e = do
             let g' = onNextState g
+            let cst = getStateText cs g'
+            pTraceShowM $ tmp_params g'
             let mn = mod_name g'
-            let withSpawn = appendCur g' $ textToDR $ sformat (
-                    "\t\t_=gen_statem:cast("%stext%":create("%stext%"),@spawn);\n") mn (getStateText cs g')
-            let (DR f) = createStateParamsDR "@spawn" (getStateText cs g')
-            let tmp_g = appendCur g'{text="",cur=[]} $ DR $ \arrow -> (f "") <> arrow
+            let createSpawn = DR $ \x -> sformat (
+                    "\t\t_=gen_statem:cast("%stext%":create("%stext%"),{@spawn,"%stext%"});\n") mn cst (if x=="" then "data" else x)
+            let withSpawn = appendCur g' (dataWithParams createSpawn (tmp_params g') "=")
+            let spawnBranch = \case "" -> sformat ("\t|(@cast,{@spawn,data},"%stext%",_) ") cst
+                                    x  -> sformat ("\t|(@cast,{@spawn,"%stext%"},"%stext%",_) ") x cst
+            let tmp_g = appendCur g'{text="",cur=[]} $ DR spawnBranch
             t <- compileBody tmp_g mn e
             return $ appendCur withSpawn{cs=cs t,ns=ns t,seed=seed t} $ textToDR $ toStrict $ toLazyText $ text t
         sep_spawn_and_body (body:spawn:tl) =
@@ -173,24 +178,30 @@ compileExpr (gen @ Generator {mod_name=mn}) (Paralel procs) = do
         sep_spawn_and_body [] = ([],[])
 compileExpr (gen @ Generator {mod_name=mn}) (Sync l (SetElems channels) r) = do
     let gen' = consumeAllCur gen
-    l' <- aux gen' l "l"
-    let [body_l, create_l] = map getValDR (cur l')
-    r' <- aux l'{cur=[]} r "r"
-    let [body_r, create_r] = map getValDR (cur r')
+    let dataCast = \x -> DR (
+            \case "" -> "\t\t_=gen_statem:cast("<>x<>",{@spawn,data});\n"
+                  y  -> "\t\t_=gen_statem:cast("<>x<>",{@spawn,"<>y<>"});\n")
+    l' <- aux (appendCur gen' $ dataWithParams (dataCast "l") (tmp_params gen') "=") l "l"
+    let [body_l, create_l, cast_l] = map getValDR (cur l')
+    r' <- aux (appendCur l'{cur=[]} $ dataWithParams (dataCast "r") (tmp_params gen') "=") r "r"
+    let [body_r, create_r, cast_r] = map getValDR (cur r')
     args <- mapM (\e -> (("@"<>) . getValDR . fst . takeCur) <$> compileExpr r'{cur=[]} e) channels
     return $ foldl appendText r'{cur=[]} [
         "{\n", create_l, create_r, "\t\t_=csp_channel:sync([", (T.intercalate "," args),
-        "],l,r);\n\t\t_=gen_statem:cast(l,@spawn);\n\t\t_=gen_statem:cast(r,@spawn);\n",
+        "],l,r);\n",
+        cast_l, cast_r,
         "\t\t{@stop,@normal,data}\n\t}\n", body_l, body_r
         ]
     where
         aux g e name = do
             let g' = onNextState g
+            let cst = getStateText cs g'
             let mn = mod_name g'
             let withSpawn = appendCur g' $ textToDR $ sformat (
                     "\t\t"%stext%"="%stext%":create("%stext%");\n") name mn (getStateText cs g')
-            let (DR f) = createStateParamsDR "@spawn" (getStateText cs g')
-            let tmp_g = appendCur g'{text="",cur=[]} $ DR $ \arrow -> (f "") <> arrow
+            let spawnBranch = \case "" -> sformat ("\t|(@cast,{@spawn,data},"%stext%",_) ") cst
+                                    x  -> sformat ("\t|(@cast,{@spawn,"%stext%"},"%stext%",_) ") x cst
+            let tmp_g = appendCur g'{text="",cur=[]} $ DR spawnBranch
             t <- compileBody tmp_g mn e
             return $ appendCur withSpawn{cs=cs t,ns=ns t,seed=seed t} $ textToDR $ toStrict $ toLazyText $ text t
 
