@@ -162,7 +162,6 @@ compileExpr (gen @ Generator {mod_name=mn}) (Paralel procs) = do
         aux g e = do
             let g' = onNextState g
             let cst = getStateText cs g'
-            pTraceShowM $ tmp_params g'
             let mn = mod_name g'
             let createSpawn = DR $ \x -> sformat (
                     "\t\t_=gen_statem:cast("%stext%":create("%stext%"),{@spawn,"%stext%"});\n") mn cst (if x=="" then "data" else x)
@@ -277,8 +276,8 @@ compileEvent gen (Event expr params) = do
             return (g { tmp_params = [] }, channel_call', branch)
     where
         aux [] cn pst cst =
-            let event = sformat ("{@" %stext% ", " %stext% "}") cn pst in
-            (createChannelCallDR "csp_channel:event" cn pst cst "", createStateParamsDR event cst)
+            let event = sformat ("{@intent,@" %stext% ", " %stext% "}") cn pst in
+            (createChannelCallDR "csp_channel:intent" cn pst cst "[],", createStateParamsDR event cst)
         aux (params @ ((Nothing, _):_)) cn pst cst =
             let fn_call = "csp_channel:send" in
             let event = sformat ("{@"%stext%","%stext%"}") cn pst in

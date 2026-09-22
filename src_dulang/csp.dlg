@@ -6,66 +6,80 @@ mod csp_channel {
   $ @relations: list of tuples: a set with the pids that are synchronizing in this channel and the counter of how many are already waiting
   $ @sync_msgs: the msgs that every waiting sync proc sent: can be @event, @recv, {@sent, data}
   fn main = (ctx <- #{@queue: queue, @waiting: waiting, @relations: relations, @sync_msgs: sync_msgs, @name: name}) =>
-      ?({@rel, {{parent, some, other},0}}) {
+      ?({@rel, {parent, some, other}}) {
         s = sets:from_list([some,other]);
         match lists:partition(fn({set, cnt}) => sets:is_element(parent, set), relations)
-        | ({[], not_related}) => main(ctx#{@relations = {s,0} :: not_related})
-        | ({from_parent, not_related}) => main(ctx#{@relations = lists:concat(
-            lists:map(fn({set, cnt}) => sets:union(s,sets:del_element(parent, set)), from_parent), not_related
-          )})
+        | ({[], not_related}) => main(ctx#{@relations = {s,[]} :: not_related})
+        | ({from_parent, not_related}) =>
+          main(ctx#{@relations = lists:concat([
+            lists:map(fn({set, w}) => {sets:union(s,sets:del_element(parent, set)),w}, from_parent), not_related
+          ])})
       }
       |(@debug) { _=utils:print(ctx); main(ctx) }
-      |({content, from}) =>
-        main(match {has_relation(from, relations), content}
-          | ({false, {@event, ps}}) { _ = from ! {cast(), {name, ps}}; ctx }
-          | ({false, {@intent, ps, intentions}}) => (
-            match (lists:filter(fn({other,intent_,ps_}) => intentions == csp_utils:opposed(intent_), waiting))
+      |({{@intent, ps, intentions}, from}) =>
+        main(match has_relation(from, relations)
+        |(false) =>
+          (match intentions
+          |([]) { $ Events have an empty intention
+            _= from ! {cast(), {@intent, name, ps}};
+            ctx
+          }
+          |(_) => (match (lists:filter(fn({other,intent_,ps_}) => intentions == csp_utils:opposed(intent_), waiting))
             | ([]) => ctx#{@waiting = {from, intentions, ps} :: waiting}
-            | ({other,intent_,ps_} :: tl) {
+            | ((elem <- {other,intent_,ps_}) :: tl) {
               _= from ! {cast(), {@intent, name, ps}};
               _= other ! {cast(), {@intent, name, ps_}};
               set = sets:from_list([from, other]);
-              ctx#{@waiting = tl, @queue = queue#{set = {@empty, @none, length(intentions)}}}
-            })
-          | ({false, {@recv, ps}}) {
-            {set, value} = hd(lists:filter(fn({s,_}) => sets:is_element(from, s), maps:to_list(queue)));
-            match value
-              | ({@empty, @none, cnt}) => ctx#{@queue = queue#{set = {@waiting, ps, cnt}}}
-              | ({data, ps_, cnt}) {
-                _ = from ! {cast(),{name, ps, data}};
-                other = hd(sets:to_list(sets:del_element(from, set)));
-                _= other ! {cast(),{name, ps_}};
-                match cnt
-                | (1) => ctx#{@queue = sets:del_element(set, queue)}
-                | (x) => ctx#{@queue = queue#{set = {@empty, @none, x - 1}}}
-              }
-          }
-          | ({false, {@send, ps, data}}) {
-            {set, value} = hd(lists:filter(fn({s,_}) => sets:is_element(from, s), maps:to_list(queue)));
-            match value
-              | ({@empty, @none, cnt}) => ctx#{@queue = queue#{set = {data, ps, cnt}}}
-              | ({@waiting, ps_, cnt}) {
-                _ = from ! {cast(),{name, ps}};
-                other = hd(sets:to_list(sets:del_element(from, set)));
-                _= other ! {cast(),{name, ps_, data}};
-                match cnt
-                | (1) => ctx#{@queue = sets:del_element(set, queue) }
-                | (x) => ctx#{@queue = queue#{set = {@empty, @none, x - 1}}}
-              }
-          }
-          | ({{@value, elem <- {set, cnt}}, c}) =>
-            (match (sets:size(set) == (cnt+1))
+              ctx#{@waiting = lists:delete(elem, waiting), @queue = queue#{set = {@empty, @none, length(intentions)}}}
+            }))
+        |({@value, elem <- {set, cur_waiting}}) =>
+            (match (sets:size(set) == (length(cur_waiting)+1))
             | (true) {
-              @ok = dispatch_sync_msgs(sync_msgs#{from = c}, set, name);
-              ctx#{@relations = {set, 0} :: lists:delete(elem, relations)}
+              $ Here we need to answer every intent, joining those who are along
+              fn find_rel = ({from, i, ps} :: rels) =>
+                (match lists:filter(fn({_,i_,_}) => i_ == csp_utils:opposed(i), rels)
+                |([]) => error("has no valid opposed intention to communicate with")
+                |((e <- {other,_,ps_}) :: tl) {
+                  _= from ! {cast(), {@intent, name, ps}};
+                  _= other ! {cast(), {@intent, name, ps_}};
+                  set = sets:from_list([from, other]);
+                  {set, {@empty, @none, length(i)}} :: find_rel(lists:delete(e,rels))
+                })
+                | ([]) => [];
+              found_relations = maps:from_list(find_rel({from, intentions, ps} :: cur_waiting));
+              ctx#{@relations = {set, []} :: lists:delete(elem, relations), @queue = maps:merge(queue,found_relations)}
             }
             | (false) => ctx#{
-                @relations = {set, cnt+1} :: lists:delete(elem, relations),
-                @sync_msgs = sync_msgs#{from = c}
-            }
-            )
-          | (something) => error(something)
-        )
+                @relations = {set, {from, intentions, ps} :: cur_waiting} :: lists:delete(elem, relations)
+            }))
+      |({{@recv, ps}, from}) {
+        {set, value} = hd(lists:filter(fn({s,_}) => sets:is_element(from, s), maps:to_list(queue)));
+        main(match value
+          | ({@empty, @none, cnt}) => ctx#{@queue = queue#{set = {@waiting, ps, cnt}}}
+          | ({data, ps_, cnt}) {
+            _ = from ! {cast(),{name, ps, data}};
+            other = hd(sets:to_list(sets:del_element(from, set)));
+            _= other ! {cast(),{name, ps_}};
+            match cnt
+            | (1) => ctx#{@queue = sets:del_element(set, queue)}
+            | (x) => ctx#{@queue = queue#{set = {@empty, @none, x - 1}}}
+          })
+      }
+      |({{@send, ps, data}, from}) {
+        {set, value} = hd(lists:filter(fn({s,_}) => sets:is_element(from, s), maps:to_list(queue)));
+        main(match value
+          | ({@empty, @none, cnt}) => ctx#{@queue = queue#{set = {data, ps, cnt}}}
+          | ({@waiting, ps_, cnt}) {
+            _ = from ! {cast(),{name, ps}};
+            other = hd(sets:to_list(sets:del_element(from, set)));
+            _= other ! {cast(),{name, ps_, data}};
+            match cnt
+            | (1) => ctx#{@queue = sets:del_element(set, queue) }
+            | (x) => ctx#{@queue = queue#{set = {@empty, @none, x - 1}}}
+          })
+
+      }
+      | (something) => error(something)
   fn has_relation = (pid, relations) => lists:search(fn({set, _}) => sets:is_element(pid, set), relations)
   fn dispatch_sync_msgs = (msgs, set, name) {
     $ Turn the stored messages from every member of the set into a list
@@ -109,7 +123,7 @@ mod csp_channel {
   $   self() is the parent of 'some' and 'other' pids,
   $   both needing to inherit all relations from its parent
   pub fn sync = (channels, some, other) =>
-    lists:foreach(fn(c) => c ! {@rel, {{self(), some, other}, 0}}, channels)
+    lists:foreach(fn(c) => c ! {@rel, {self(), some, other}}, channels)
 }
 
 mod csp_utils {
