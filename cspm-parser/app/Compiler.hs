@@ -75,8 +75,8 @@ takeCur (gen @ (Generator {cur=h:tl})) = (h, gen { cur=tl })
 
 createChannelCallDR :: T.Text -> T.Text -> T.Text -> T.Text -> T.Text -> DataReplaceable
 createChannelCallDR fn cn pst cst d =
-    DR $ \case "" -> sformat (stext%"(@"%stext%","%stext%","%stext%"{@next_state,"%stext%",data})") fn cn pst d cst
-               x  -> sformat (stext%"(@"%stext%","%stext%","%stext%"{@next_state,"%stext%","%stext%"})") fn cn pst d cst x
+    DR $ \case "" -> sformat (stext%"(@"%stext%","%stext%","%stext%","%stext%"data)") fn cn pst cst d
+               x  -> sformat (stext%"(@"%stext%","%stext%","%stext%","%stext%""%stext%")") fn cn pst cst d x
 createStateParamsDR :: T.Text -> T.Text -> DataReplaceable
 createStateParamsDR event cst =
     DR $ \case "" -> sformat ("\t|(@cast,"%stext%","%stext%",data) ") event cst
@@ -178,16 +178,16 @@ compileExpr (gen @ Generator {mod_name=mn}) (Paralel procs) = do
 compileExpr (gen @ Generator {mod_name=mn}) (Sync l (SetElems channels) r) = do
     let gen' = consumeAllCur gen
     let dataCast = \x -> DR (
-            \case "" -> "\t\t_=gen_statem:cast("<>x<>",{@spawn,data});\n"
-                  y  -> "\t\t_=gen_statem:cast("<>x<>",{@spawn,"<>y<>"});\n")
+            \case "" -> "\t\t_=gen_statem:cast("<>x<>",{@spawn,"<>x<>"data});\n"
+                  y  -> "\t\t_=gen_statem:cast("<>x<>",{@spawn,"<>x<>y<>"});\n")
     l' <- aux (appendCur gen' $ dataWithParams (dataCast "l") (tmp_params gen') "=") l "l"
     let [body_l, create_l, cast_l] = map getValDR (cur l')
     r' <- aux (appendCur l'{cur=[]} $ dataWithParams (dataCast "r") (tmp_params gen') "=") r "r"
     let [body_r, create_r, cast_r] = map getValDR (cur r')
     args <- mapM (\e -> (("@"<>) . getValDR . fst . takeCur) <$> compileExpr r'{cur=[]} e) channels
     return $ foldl appendText r'{cur=[]} [
-        "{\n", create_l, create_r, "\t\t_=csp_channel:sync([", (T.intercalate "," args),
-        "],l,r);\n",
+        "{\n", create_l, create_r, "\t\t{ldata,rdata}=csp_channel:sync([", (T.intercalate "," args),
+        "],data);\n",
         cast_l, cast_r,
         "\t\t{@stop,@normal,data}\n\t}\n", body_l, body_r
         ]
@@ -217,14 +217,25 @@ compileExpr gen (FuncApp (V fn_name) args) = do
     let gen' = case cur gen of
             (h:tl) -> gen{cur=(dataWithParams h args_from_data ":"):tl}
             [] -> gen
-    return $ appendCur gen' $ textToDR $ fn<>":enter({"<>(T.intercalate "," args)<> "},@"<>fn<>"0)\n"
+    return $ appendCur gen' $ textToDR $ fn<>":enter({"<>(T.intercalate "," args)<> "},@"<>fn<>"0,data)\n"
+compileExpr gen (RepParalel exprs p) = do
+    g <- foldlM compileExpr gen exprs
+    g' <- compileExpr g p
+    -- "lists:foreach(fn(i) => gen_statem:cast(P:create(), @start),lists:seq(,))"
+    return g'
+compileExpr gen (RepIterate p (EnumInterval lower upper)) = do
+    p' <- compilePatt p
+    l <- compileExpr gen lower
+    u <- compileExpr gen upper
+    return gen
+    -- return $ appendCur gen ( sformat ("lists:foreach(fn("%stext%") => gen_statem:cast("%stext%":create(@"%stext%"0),"%stext%"))") p')
 compileExpr gen (ProcCall (V "STOP")) = do
     return $ appendCur gen $ textToDR "{@stop, @stop, data}\n"
 compileExpr gen (ProcCall (V "SKIP")) = do
     return $ appendCur gen $ textToDR "{@stop, @skip, data}\n"
 compileExpr gen (ProcCall (V n)) = do
     let n' = decodeUtf8 n
-    return $ appendCur gen $ textToDR $ n'<>":enter(@start,@"<>n'<>"0)\n"
+    return $ appendCur gen $ textToDR $ n'<>":enter(@start,@"<>n'<>"0,data)\n"
 compileExpr gen (BinOp op lhs rhs) = do
     let op' = case op of
             Plus -> " + "
@@ -338,9 +349,9 @@ dataWithParams (DR f) params op =
 
 prefixDR mod_name = DR $ \event -> sformat ("mod " % stext % "(@gen_statem) {\n\
           \\tpub fn create = (state) => element(2, gen_statem:start_link(@"%stext%", state, []))\n\
-          \\tpub fn enter = (args,state) => gen_statem:enter_loop(@"%stext%", [], state, #{@queue = #{}}, [{@next_event, @cast, "%stext%"}])\n\
+          \\tpub fn enter = (args,state,data) => gen_statem:enter_loop(@"%stext%", [], state, data, [{@next_event, @cast, "%stext%"}])\n\
           \\tpub fn callback_mode = () => @handle_event_function\n\
-          \\tpub fn init = (state) => {@ok, state, #{@queue = #{}}}\n\
+          \\tpub fn init = (state) => {@ok, state, #{@queue=#{},@ids=#{}}}\n\
           \\tpub fn handle_event =\n\t") mod_name mod_name mod_name event
 
 suffixHandleEvent =

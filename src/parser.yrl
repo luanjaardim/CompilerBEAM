@@ -8,12 +8,13 @@ Nonterminals
 	definitions def mod_def mod_def_aux sttms sttm.
 
 Terminals
-	integer string var atom
-	'+' '-' '*' '/' 'div' 'rem'
-	'=' '<-' '==' '/=' '>' '<' '>=' '=<' '::'
-	fn_call match_kw if_kw 'true' 'false' pub_kw mod_kw fn_kw fn_par_kw
-	'(' ')' '[' ']' '{' '}'
-	'||' '&&' '=>' '?' '!' '|' '#' ';' ':' ',' eof.
+  integer string var atom
+  '+' '-' '*' '/' 'div' 'rem'
+  'or' 'and' 'not'
+  '=' '<-' '==' '/=' '>' '<' '>=' '<=' '::'
+  fn_call match_kw if_kw 'true' 'false' pub_kw mod_kw fn_kw fn_par_kw
+  '(' ')' '[' ']' '{' '}'
+  '||' '&&' '=>' '?' '!' '|' '#' ';' ':' ',' eof.
 
 Rootsymbol definitions.
 
@@ -77,6 +78,9 @@ expr -> expr '>'  expr: {op, '$2', '$1', '$3'}.
 expr -> expr '<'  expr: {op, '$2', '$1', '$3'}.
 expr -> expr '>=' expr: {op, '$2', '$1', '$3'}.
 expr -> expr '=<' expr: {op, '$2', '$1', '$3'}.
+expr -> expr 'or' expr: {op, '$2', '$1', '$3'}.
+expr -> expr 'and' expr: {op, '$2', '$1', '$3'}.
+expr -> 'not' expr: {op, '$1', '$2'}.
 
 % Tuple definition
 tuple_aux -> '}' : [].

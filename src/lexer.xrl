@@ -45,6 +45,9 @@ Rules.
 
 % Reserved keywords
 if      : {token, {if_kw, TokenLoc}}.
+or      : {token, {'or', TokenLoc}}.
+and     : {token, {'and', TokenLoc}}.
+not     : {token, {'not', TokenLoc}}.
 pub     : {token, {pub_kw, TokenLoc}}.
 match   : {token, {match_kw, TokenLoc}}.
 mod     : {token, {mod_kw, TokenLoc}}.
